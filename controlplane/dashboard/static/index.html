@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ControlPlane.ai — Insights Hub</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  :root {
+    --bg: #f4f6fa;
+    --panel: #ffffff;
+    --panel-border: rgba(0, 0, 0, 0.08);
+    --text: #1a1a24;
+    --muted: #6b7280;
+    --accent: #a100ff;
+    --accent-hover: #b833ff;
+    --low: #00e676;
+    --medium: #ff9100;
+    --high: #ff1744;
+    --sidebar-width: 280px;
+    --topbar-height: 64px;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased;
+    display: grid;
+    grid-template-columns: var(--sidebar-width) 1fr;
+    grid-template-rows: var(--topbar-height) 1fr;
+    height: 100vh;
+    overflow: hidden;
+    transition: grid-template-columns 0.3s ease;
+  }
+  body.sidebar-collapsed { grid-template-columns: 0px 1fr; }
+
+  h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.2); }
+
+  /* Topbar */
+  .topbar {
+    grid-column: 1 / -1;
+    background: var(--bg);
+    border-bottom: 1px solid var(--panel-border);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 32px; }
+  .logo { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 16px; letter-spacing: 0.1em; }
+  .logo-icon { color: var(--accent); font-size: 20px; font-weight: 800; }
+  .topbar-nav { display: flex; gap: 24px; }
+  .nav-item {
+    color: var(--muted); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.08em; font-weight: 600; cursor: pointer;
+    transition: color 0.2s; text-decoration: none; background: none; border: none;
+    font-family: 'Inter', sans-serif; padding: 0; line-height: var(--topbar-height);
+    display: inline-block; position: relative;
+  }
+  .nav-item:hover { color: var(--text); }
+  .nav-item.active { color: var(--text); }
+  .nav-item.active::after {
+    content: ''; position: absolute; bottom: 0; left: 0;
+    width: 100%; height: 2px; background: var(--accent);
+  }
+  .hamburger { background: none; border: none; color: var(--text); font-size: 20px; cursor: pointer; padding: 4px; }
+  .hamburger:hover { color: var(--accent); }
+  .topbar-right { display: flex; align-items: center; gap: 16px; }
+  .user-profile { display: flex; align-items: center; gap: 12px; }
+  .user-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--panel); border: 1px solid var(--accent); }
+  .user-name { font-size: 13px; font-weight: 600; }
+  .user-role { font-size: 11px; color: var(--muted); }
+  .profile-wrapper { position: relative; cursor: pointer; }
+  .profile-dropdown {
+    position: absolute; top: calc(100% + 8px); right: 0;
+    width: 200px; background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 10px; padding: 8px; box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+    display: none; flex-direction: column; z-index: 200;
+  }
+  .profile-dropdown.active { display: flex; }
+  .dd-item { padding: 10px 14px; color: var(--muted); font-size: 13px; border-radius: 6px; cursor: pointer; transition: background 0.15s, color 0.15s; }
+  .dd-item:hover { background: rgba(0,0,0,0.04); color: var(--text); }
+  .dd-divider { height: 1px; background: var(--panel-border); margin: 4px 0; }
+
+  /* Sidebar */
+  .sidebar {
+    background: var(--panel);
+    border-right: 1px solid var(--panel-border);
+    padding: 24px 0; display: flex; flex-direction: column; gap: 24px;
+    overflow-y: auto; overflow-x: hidden;
+  }
+  .sidebar-header { padding: 0 24px; }
+  .sidebar-header h2 { font-size: 18px; font-weight: 600; }
+  .sidebar-stats { padding: 0 24px; display: flex; flex-direction: column; gap: 16px; }
+  .side-stat { background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); border-radius: 8px; padding: 16px; }
+  .side-stat .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+  .side-stat .val { font-size: 24px; font-weight: 700; }
+  .side-stat.highlight .val { color: var(--accent); }
+  .sidebar-menu { display: flex; flex-direction: column; }
+  .menu-item {
+    padding: 12px 24px; color: var(--muted); font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: background 0.2s, color 0.2s;
+    border-left: 3px solid transparent; text-decoration: none; display: block;
+  }
+  .menu-item:hover { background: rgba(255,255,255,0.02); color: var(--text); }
+  .menu-item.active { background: rgba(161,0,255,0.05); color: var(--text); border-left-color: var(--accent); }
+
+  /* Main */
+  .main-content { background: var(--bg); padding: 32px 40px; overflow-y: auto; scroll-behavior: smooth; }
+  .page-header { margin-bottom: 24px; }
+  .page-header .subtext { color: var(--muted); font-size: 13px; margin-top: 4px; display: flex; align-items: center; gap: 8px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--low); box-shadow: 0 0 10px var(--low); flex-shrink: 0; }
+
+  .dashboard-grid { display: grid; grid-template-columns: 1fr 340px; gap: 24px; margin-bottom: 32px; }
+  .card { background: var(--panel); border: 1px solid var(--panel-border); border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; }
+  .card-header { padding: 16px 20px; border-bottom: 1px solid var(--panel-border); font-size: 14px; font-weight: 600; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+  th { padding: 12px 20px; font-weight: 600; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--panel-border); }
+  td { padding: 14px 20px; border-bottom: 1px solid var(--panel-border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .trace { font-family: 'SFMono-Regular', Consolas, monospace; color: var(--accent); }
+  .reason { color: var(--text); line-height: 1.5; }
+  .empty { padding: 40px; text-align: center; color: var(--muted); font-size: 13px; }
+
+  .badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+  .badge.LOW_RISK { background: rgba(0,230,118,0.1); color: var(--low); border: 1px solid rgba(0,230,118,0.2); }
+  .badge.LOW_RISK { background: rgba(16,185,129,0.1); color: var(--low); border: 1px solid rgba(16,185,129,0.2); }
+  .badge.MEDIUM_RISK { background: rgba(245,158,11,0.1); color: var(--medium); border: 1px solid rgba(245,158,11,0.2); }
+  .badge.HIGH_RISK { background: rgba(239,68,68,0.1); color: var(--high); border: 1px solid rgba(239,68,68,0.2); }
+
+  .escalation-row td { background: rgba(239,68,68,0.05); }
+  .escalation-row.resolved td { opacity: 0.4; text-decoration: line-through; background: transparent; }
+
+  .btn {
+    background: var(--accent); color: white; border: none;
+    padding: 10px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: all 0.2s; font-family: 'Inter', sans-serif;
+  }
+  .btn:hover { background: var(--accent-hover); box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3); transform: translateY(-1px); }
+  .btn-outline { background: transparent; border: 1px solid var(--accent); color: var(--accent); }
+  .btn-outline:hover { background: rgba(79, 70, 229, 0.1); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+
+  .feed-wrap { max-height: 380px; overflow-y: auto; }
+
+  /* Modal */
+  .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); display: none; justify-content: center; align-items: center; z-index: 1000; }
+  .modal-overlay.active { display: flex; }
+  .modal { background: var(--bg); border: 1px solid var(--panel-border); border-radius: 12px; width: 640px; max-width: 90vw; box-shadow: 0 24px 48px rgba(0,0,0,0.6); display: flex; flex-direction: column; overflow: hidden; }
+  .modal-header { padding: 20px 24px; border-bottom: 1px solid var(--panel-border); display: flex; justify-content: space-between; align-items: center; background: var(--panel); }
+  .modal-close { background: none; border: none; color: var(--muted); font-size: 24px; cursor: pointer; padding: 0; line-height: 1; }
+  .modal-close:hover { color: var(--text); }
+  .modal-body { padding: 24px; max-height: 60vh; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; }
+  .modal-footer { padding: 16px 24px; border-top: 1px solid var(--panel-border); display: flex; justify-content: flex-end; gap: 12px; background: var(--panel); }
+  .data-group { display: flex; flex-direction: column; gap: 8px; }
+  .data-label { font-size: 11px; color: var(--muted); text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em; }
+  .data-value { background: rgba(0,0,0,0.03); border: 1px solid var(--panel-border); border-radius: 8px; padding: 14px; font-family: 'SFMono-Regular', Consolas, monospace; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+  .data-reason { color: var(--high); font-weight: 600; font-size: 14px; }  /* Agent Cards */
+  .agent-card {
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 12px; padding: 24px; cursor: pointer;
+    transition: all 0.2s; position: relative; overflow: hidden;
+  }
+  .agent-card::before {
+    content: ''; position: absolute; inset: 0; opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .agent-card.cost-card::before { background: radial-gradient(circle at top right, rgba(161,0,255,0.1), transparent 60%); }
+  .agent-card.perf-card::before { background: radial-gradient(circle at top right, rgba(0,230,118,0.1), transparent 60%); }
+  .agent-card.resp-card::before { background: radial-gradient(circle at top right, rgba(255,145,0,0.1), transparent 60%); }
+  .agent-card:hover { border-color: rgba(0,0,0,0.15); transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,0.08); }
+  .agent-card:hover::before { opacity: 1; }
+  .agent-card .ac-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+  .agent-card .ac-icon { font-size: 28px; }
+  .agent-card .ac-badge { font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 20px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .agent-card h3 { font-size: 16px; margin-bottom: 6px; }
+  .agent-card .ac-desc { color: var(--muted); font-size: 13px; line-height: 1.5; margin-bottom: 20px; }
+  .agent-card .ac-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+  .agent-card .ac-stat { background: rgba(0,0,0,0.03); border-radius: 8px; padding: 10px; text-align: center; }
+  .agent-card .ac-stat .acv { font-size: 20px; font-weight: 700; line-height: 1; margin-bottom: 4px; }
+  .agent-card .ac-stat .acl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .agent-card .ac-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--panel-border); padding-top: 14px; }
+  .agent-card .ac-cta { font-size: 12px; color: var(--accent); font-weight: 600; display: flex; align-items: center; gap: 4px; }
+
+  /* Agent Detail Drawer */
+  .drawer-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+    z-index: 900; display: none;
+  }
+  .drawer-overlay.active { display: block; }
+  .drawer {
+    position: fixed; top: 0; right: -620px; bottom: 0; width: 600px;
+    background: var(--bg); border-left: 1px solid var(--panel-border);
+    z-index: 901; transition: right 0.3s cubic-bezier(0.4,0,0.2,1);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .drawer.open { right: 0; }
+  .drawer-header {
+    padding: 24px 28px 20px; border-bottom: 1px solid var(--panel-border);
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--panel); flex-shrink: 0;
+  }
+  .drawer-header h2 { font-size: 18px; display: flex; align-items: center; gap: 10px; }
+  .drawer-close { background: none; border: none; color: var(--muted); font-size: 22px; cursor: pointer; transition: color 0.2s; }
+  .drawer-close:hover { color: var(--text); }
+  .drawer-body { flex: 1; overflow-y: auto; padding: 28px; display: flex; flex-direction: column; gap: 24px; }
+  .drawer-section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 14px; }
+  .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .metric-box { background: var(--panel); border: 1px solid var(--panel-border); border-radius: 10px; padding: 16px; text-align: center; }
+  .metric-box .mv { font-size: 26px; font-weight: 700; line-height: 1; margin-bottom: 6px; }
+  .metric-box .ml { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .drawer-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .drawer-table th { padding: 10px 14px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); border-bottom: 1px solid var(--panel-border); text-align: left; }
+  .drawer-table td { padding: 12px 14px; border-bottom: 1px solid var(--panel-border); vertical-align: top; }
+  .drawer-table tr:last-child td { border-bottom: none; }
+  .drawer-table tr:hover td { background: rgba(0,0,0,0.02); }
+  .drawer-empty { padding: 40px; text-align: center; color: var(--muted); font-size: 13px; }
+  .risk-bar { display: flex; gap: 3px; height: 6px; border-radius: 6px; overflow: hidden; margin-top: 8px; }
+  .risk-bar .rb-low { background: var(--low); }
+  .risk-bar .rb-med { background: var(--medium); }
+  .risk-bar .rb-high { background: var(--high); }
+  .risk-bar .rb-none { background: var(--panel-border); flex: 1; }
+
+  /* Mock pages */
+  .form-group { margin-bottom: 20px; }
+  .form-group label { display: block; font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .form-group input, .form-group select { width: 100%; max-width: 400px; background: rgba(0,0,0,0.03); border: 1px solid var(--panel-border); border-radius: 8px; padding: 12px 16px; color: var(--text); font-family: 'Inter', sans-serif; }
+  .form-group input:focus { outline: none; border-color: var(--accent); }
+
+  .nav-view { display: none; }
+  .nav-view.active-view { display: block; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-left">
+    <button class="hamburger" onclick="document.body.classList.toggle('sidebar-collapsed')">☰</button>
+    <div class="logo"><span class="logo-icon">&gt;</span> ControlPlane</div>
+    <nav class="topbar-nav">
+      <button class="nav-item active" id="nav-dashboard" onclick="switchView('view-dashboard', this)">Dashboard</button>
+      <button class="nav-item" id="nav-rules" onclick="switchView('view-rules', this)">Rules &amp; Policies</button>
+      <button class="nav-item" id="nav-agents" onclick="switchView('view-agents', this)">Agents</button>
+      <button class="nav-item" id="nav-settings" onclick="switchView('view-settings', this)">Settings</button>
+    </nav>
+  </div>
+  <div class="topbar-right">
+    <div class="profile-wrapper" id="profileWrapper">
+      <div class="user-profile">
+        <div style="display:flex;flex-direction:column;">
+          <span class="user-name">Jessica Taylor</span>
+          <span class="user-role">Security Ops</span>
+        </div>
+        <div class="user-avatar"></div>
+      </div>
+      <div class="profile-dropdown" id="profileDropdown">
+        <div class="dd-item">My Account</div>
+        <div class="dd-item">Preferences</div>
+        <div class="dd-divider"></div>
+        <div class="dd-item" style="color:var(--high);">Sign Out</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<aside class="sidebar">
+  <div class="sidebar-header"><h2>Insights Hub</h2></div>
+  <div class="sidebar-stats">
+    <div class="side-stat">
+      <div class="label">Total API Requests</div>
+      <div class="val" id="statTotal">0</div>
+    </div>
+    <div class="side-stat highlight">
+      <div class="label">Total Value Opportunity</div>
+      <div class="val" id="statCost">$0.000</div>
+    </div>
+  </div>
+  <div class="sidebar-menu">
+    <a href="#overview" class="menu-item active" onclick="setActiveMenu(this)">Overview</a>
+    <a href="#escalations" class="menu-item" onclick="setActiveMenu(this)">High-Risk Escalations</a>
+    <a href="#action-feed" class="menu-item" onclick="setActiveMenu(this)">Live Action Feed</a>
+    <a href="#agent-findings" class="menu-item" onclick="setActiveMenu(this)">Agent Findings</a>
+  </div>
+</aside>
+
+<main class="main-content">
+
+  <!-- DASHBOARD VIEW -->
+  <div id="view-dashboard" class="nav-view active-view">
+    <div class="page-header">
+      <h1>Digital Transformation Readiness</h1>
+      <div class="subtext">
+        <span class="status-dot" id="statusDot"></span>
+        Powered by ControlPlane.ai Action Engine
+      </div>
+    </div>
+
+    <div class="dashboard-grid" id="overview">
+      <div class="card" style="grid-column:1/-1;">
+        <div class="card-header">Insight Overview</div>
+        <div style="padding:24px;display:flex;gap:40px;">
+          <div style="flex:1;">
+            <p style="color:var(--muted);font-size:14px;line-height:1.6;margin-top:0;">
+              ControlPlane.ai is currently monitoring live traffic through the sidecar proxy. High-risk responses are blocked and escalated in real-time.
+            </p>
+            <div style="display:flex;gap:16px;margin-top:24px;">
+              <div style="background:rgba(0,230,118,0.1);padding:16px;border-radius:8px;flex:1;">
+                <div style="color:var(--low);font-size:12px;font-weight:600;margin-bottom:4px;">PASS-THROUGH</div>
+                <div style="font-size:24px;font-weight:700;" id="statLow">0</div>
+              </div>
+              <div style="background:rgba(255,145,0,0.1);padding:16px;border-radius:8px;flex:1;">
+                <div style="color:var(--medium);font-size:12px;font-weight:600;margin-bottom:4px;">AUTO-EDITED</div>
+                <div style="font-size:24px;font-weight:700;" id="statMedium">0</div>
+              </div>
+              <div style="background:rgba(255,23,68,0.1);padding:16px;border-radius:8px;flex:1;">
+                <div style="color:var(--high);font-size:12px;font-weight:600;margin-bottom:4px;">BLOCKED</div>
+                <div style="font-size:24px;font-weight:700;" id="statHigh">0</div>
+              </div>
+            </div>
+          </div>
+          <div style="width:200px;display:flex;align-items:center;justify-content:center;">
+            <div style="position:relative;width:100%;height:160px;"><canvas id="riskChart"></canvas></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="escalations" style="margin-bottom:24px;border-color:rgba(255,23,68,0.3);">
+      <div class="card-header">⚠ High-Risk Escalations (Action Library)</div>
+      <div class="feed-wrap">
+        <table id="escalationTable">
+          <thead><tr><th>Time</th><th>Trace</th><th>Reason</th><th>Snippet</th><th>Action</th></tr></thead>
+          <tbody id="escalationBody"></tbody>
+        </table>
+        <div class="empty" id="escalationEmpty">No escalations pending review.</div>
+      </div>
+    </div>
+
+    <div class="dashboard-grid" style="grid-template-columns:1fr 1fr;margin-bottom:0;">
+      <div class="card" id="action-feed">
+        <div class="card-header">Live Action Feed</div>
+        <div class="feed-wrap">
+          <table id="actionTable">
+            <thead><tr><th>Trace</th><th>Risk</th><th>Action</th><th>Agents</th></tr></thead>
+            <tbody id="actionBody"></tbody>
+          </table>
+          <div class="empty" id="actionEmpty">Waiting for traffic...</div>
+        </div>
+      </div>
+      <div class="card" id="agent-findings">
+        <div class="card-header">Micro-Agent Findings</div>
+        <div class="feed-wrap">
+          <table id="findingTable">
+            <thead><tr><th>Agent</th><th>Trace</th><th>Risk</th><th>Score</th></tr></thead>
+            <tbody id="findingBody"></tbody>
+          </table>
+          <div class="empty" id="findingEmpty">No findings yet.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RULES VIEW -->
+  <div id="view-rules" class="nav-view">
+    <div class="page-header">
+      <h1>Rules &amp; Policies</h1>
+      <div class="subtext">Manage global guardrails and routing policies.</div>
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Policy Name</th><th>Type</th><th>Threshold</th><th>Action</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>Hallucination Check</td><td>Content Safety</td><td>Similarity &lt; 0.4</td><td>Block &amp; Escalate</td><td><span class="badge LOW_RISK">Active</span></td></tr>
+          <tr><td>Toxicity Filter</td><td>Content Safety</td><td>Score &gt; 0.8</td><td>Block &amp; Escalate</td><td><span class="badge LOW_RISK">Active</span></td></tr>
+          <tr><td>PII Redaction</td><td>Privacy</td><td>N/A</td><td>Auto-Edit</td><td><span class="badge LOW_RISK">Active</span></td></tr>
+          <tr><td>Budget Cap</td><td>Cost Control</td><td>$0.50 / session</td><td>Block &amp; Escalate</td><td><span class="badge LOW_RISK">Active</span></td></tr>
+          <tr><td>Code Execution</td><td>Security</td><td>N/A</td><td>Log Only</td><td><span class="badge MEDIUM_RISK">Monitoring</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- AGENTS VIEW -->
+  <div id="view-agents" class="nav-view">
+    <div class="page-header">
+      <h1>Micro-Agents</h1>
+      <div class="subtext">Live per-agent work feed — updates in real-time as traffic flows through the proxy. Click any card for full insights.</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:24px;">
+
+      <!-- Cost Agent -->
+      <div class="agent-card cost-card" onclick="openAgentDrawer('cost')">
+        <div class="ac-header">
+          <div>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+              <span class="ac-icon">💰</span>
+              <h3 style="margin:0;">CostAgent</h3>
+            </div>
+            <p class="ac-desc" style="margin:0;">Tracks token costs &amp; enforces session budget caps.</p>
+          </div>
+          <span class="ac-badge" style="background:rgba(161,0,255,0.15);color:var(--accent);border:1px solid rgba(161,0,255,0.3);white-space:nowrap;">● Online</span>
+        </div>
+        <!-- Agent-specific stats -->
+        <div class="ac-stats" style="grid-template-columns:repeat(4,1fr);margin-top:14px;">
+          <div class="ac-stat"><div class="acv" id="cost-total">0</div><div class="acl">Scanned</div></div>
+          <div class="ac-stat"><div class="acv" style="color:var(--low);" id="cost-low">0</div><div class="acl">OK</div></div>
+          <div class="ac-stat"><div class="acv" style="color:var(--high);" id="cost-high">0</div><div class="acl">Over Budget</div></div>
+          <div class="ac-stat"><div class="acv" id="cost-avg">—</div><div class="acl">Avg Score</div></div>
+        </div>
+        <!-- Live feed -->
+        <div style="margin-top:14px;">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:8px;">Live Work Feed</div>
+          <div id="cost-feed" style="display:flex;flex-direction:column;gap:5px;min-height:60px;">
+            <div style="font-size:12px;color:var(--muted);font-style:italic;">Waiting for traffic...</div>
+          </div>
+        </div>
+        <div class="ac-footer" style="margin-top:14px;">
+          <span style="font-size:12px;color:var(--muted);">~12ms latency</span>
+          <span class="ac-cta">Full Insights →</span>
+        </div>
+      </div>
+
+      <!-- Performance Agent -->
+      <div class="agent-card perf-card" onclick="openAgentDrawer('performance')">
+        <div class="ac-header">
+          <div>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+              <span class="ac-icon">⚡</span>
+              <h3 style="margin:0;">PerformanceAgent</h3>
+            </div>
+            <p class="ac-desc" style="margin:0;">Detects hallucinations via semantic grounding score.</p>
+          </div>
+          <span class="ac-badge" style="background:rgba(0,230,118,0.15);color:var(--low);border:1px solid rgba(0,230,118,0.3);white-space:nowrap;">● Online</span>
+        </div>
+        <div class="ac-stats" style="grid-template-columns:repeat(4,1fr);margin-top:14px;">
+          <div class="ac-stat"><div class="acv" id="performance-total">0</div><div class="acl">Scanned</div></div>
+          <div class="ac-stat"><div class="acv" style="color:var(--low);" id="performance-low">0</div><div class="acl">Grounded</div></div>
+          <div class="ac-stat"><div class="acv" style="color:var(--high);" id="performance-high">0</div><div class="acl">Hallucinated</div></div>
+          <div class="ac-stat"><div class="acv" id="performance-avg">—</div><div class="acl">Avg Score</div></div>
+        </div>
+        <div style="margin-top:14px;">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:8px;">Live Work Feed</div>
+          <div id="performance-feed" style="display:flex;flex-direction:column;gap:5px;min-height:60px;">
+            <div style="font-size:12px;color:var(--muted);font-style:italic;">Waiting for traffic...</div>
+          </div>
+        </div>
+        <div class="ac-footer" style="margin-top:14px;">
+          <span style="font-size:12px;color:var(--muted);">~45ms latency</span>
+          <span class="ac-cta">Full Insights →</span>
+        </div>
+      </div>
+
+      <!-- Responsibility Agent -->
+      <div class="agent-card resp-card" onclick="openAgentDrawer('responsibility')">
+        <div class="ac-header">
+          <div>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+              <span class="ac-icon">🛡</span>
+              <h3 style="margin:0;">ResponsibilityAgent</h3>
+            </div>
+            <p class="ac-desc" style="margin:0;">Filters PII/NER, toxicity &amp; policy violations.</p>
+          </div>
+          <span class="ac-badge" style="background:rgba(255,145,0,0.15);color:var(--medium);border:1px solid rgba(255,145,0,0.3);white-space:nowrap;">● Online</span>
+        </div>
+        <div class="ac-stats" style="grid-template-columns:repeat(4,1fr);margin-top:14px;">
+          <div class="ac-stat"><div class="acv" id="responsibility-total">0</div><div class="acl">Scanned</div></div>
+          <div class="ac-stat"><div class="acv" style="color:var(--low);" id="responsibility-low">0</div><div class="acl">Clean</div></div>
+          <div class="ac-stat"><div class="acv" style="color:var(--high);" id="responsibility-high">0</div><div class="acl">Violations</div></div>
+          <div class="ac-stat"><div class="acv" id="responsibility-avg">—</div><div class="acl">Avg Score</div></div>
+        </div>
+        <div style="margin-top:14px;">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:8px;">Live Work Feed</div>
+          <div id="responsibility-feed" style="display:flex;flex-direction:column;gap:5px;min-height:60px;">
+            <div style="font-size:12px;color:var(--muted);font-style:italic;">Waiting for traffic...</div>
+          </div>
+        </div>
+        <div class="ac-footer" style="margin-top:14px;">
+          <span style="font-size:12px;color:var(--muted);">~80ms latency</span>
+          <span class="ac-cta">Full Insights →</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- SETTINGS VIEW -->
+  <div id="view-settings" class="nav-view">
+    <div class="page-header">
+      <h1>Settings</h1>
+      <div class="subtext">System and user preferences.</div>
+    </div>
+    <div class="card" style="padding:32px;">
+      <h3 style="margin-bottom:24px;color:var(--accent);">Proxy Configuration</h3>
+      <div class="form-group">
+        <label>Default LLM Provider</label>
+        <select>
+          <option>Groq (via proxy)</option>
+          <option>OpenAI</option>
+          <option>Anthropic</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Proxy Port</label>
+        <input type="text" value="8080">
+      </div>
+      <div class="form-group">
+        <label>Redis Connection String</label>
+        <input type="password" value="redis://127.0.0.1:6379">
+      </div>
+      <button class="btn" style="margin-top:16px;">Save Changes</button>
+    </div>
+  </div>
+
+</main>
+
+<!-- Agent Detail Drawer -->
+<div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="agentDrawer">
+  <div class="drawer-header">
+    <h2 id="drawerTitle">Agent Insights</h2>
+    <button class="drawer-close" onclick="closeDrawer()">&times;</button>
+  </div>
+  <div class="drawer-body" id="drawerBody">
+    <div class="drawer-empty">Loading...</div>
+  </div>
+</div>
+
+<!-- HITL Modal -->
+<div class="modal-overlay" id="hitlModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Review Escalation: <span class="trace" id="modalTrace"></span></h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="data-group">
+        <div class="data-label">Violated Policy</div>
+        <div class="data-reason" id="modalReason"></div>
+      </div>
+      <div class="data-group">
+        <div class="data-label">Original Prompt</div>
+        <div class="data-value" id="modalPrompt"></div>
+      </div>
+      <div class="data-group">
+        <div class="data-label">Blocked Response Snippet</div>
+        <div class="data-value" id="modalSnippet"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn" id="modalResolveBtn" onclick="resolveCurrent()">Approve &amp; Resolve</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Chart ────────────────────────────────────────────────────────────
+Chart.defaults.color = '#8e95b0';
+Chart.defaults.font.family = "'Inter', sans-serif";
+const riskChart = new Chart(document.getElementById('riskChart').getContext('2d'), {
+  type: 'doughnut',
+  data: {
+    labels: ['Pass', 'Edit', 'Block'],
+    datasets: [{ data: [0,0,0], backgroundColor: ['#00e676','#ff9100','#ff1744'], borderWidth: 0, hoverOffset: 4 }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false, cutout: '75%',
+    plugins: {
+      legend: { display: false },
+      tooltip: { backgroundColor: '#151628', titleColor: '#fff', bodyColor: '#ccc', borderColor: '#2a2b40', borderWidth: 1, padding: 10, cornerRadius: 8 }
+    }
+  }
+});
+
+// ── State ────────────────────────────────────────────────────────────
+const escalationsData = new Map();
+const resolvedTraces = new Set();
+let currentReviewTrace = null;
+
+// ── Helpers ──────────────────────────────────────────────────────────
+function fmtTime(ts) { return new Date(ts * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}); }
+function shortTrace(t) { return t ? t.slice(0,8) : ''; }
+function esc(s) { const d = document.createElement('div'); d.innerText = s ?? ''; return d.innerHTML; }
+
+// ── Navigation ────────────────────────────────────────────────────────
+function switchView(viewId, btn) {
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.nav-view').forEach(el => el.classList.remove('active-view'));
+  document.getElementById(viewId).classList.add('active-view');
+  if (viewId !== 'view-dashboard') {
+    document.body.classList.add('sidebar-collapsed');
+  } else {
+    document.body.classList.remove('sidebar-collapsed');
+  }
+}
+
+function setActiveMenu(elem) {
+  document.querySelectorAll('.sidebar-menu .menu-item').forEach(el => el.classList.remove('active'));
+  elem.classList.add('active');
+}
+
+// ── Profile dropdown ─────────────────────────────────────────────────
+document.getElementById('profileWrapper').addEventListener('click', function(e) {
+  e.stopPropagation();
+  document.getElementById('profileDropdown').classList.toggle('active');
+});
+document.addEventListener('click', function() {
+  document.getElementById('profileDropdown').classList.remove('active');
+});
+
+// ── Table helpers ────────────────────────────────────────────────────
+function prependRow(tbodyId, emptyId, rowHtml, maxRows, rowId = null, extraClass = '') {
+  const tbody = document.getElementById(tbodyId);
+  document.getElementById(emptyId).style.display = 'none';
+  const tr = document.createElement('tr');
+  if (rowId) tr.id = rowId;
+  if (extraClass) tr.className = extraClass;
+  tr.innerHTML = rowHtml;
+  tbody.prepend(tr);
+  while (tbody.children.length > maxRows) tbody.removeChild(tbody.lastChild);
+}
+
+// ── Stats ────────────────────────────────────────────────────────────
+function updateStats(stats) {
+  document.getElementById('statTotal').innerText = stats.total_requests ?? 0;
+  document.getElementById('statCost').innerText = '$' + (stats.session_cost_usd ?? 0).toFixed(5);
+  document.getElementById('statLow').innerText = stats.low ?? 0;
+  document.getElementById('statMedium').innerText = stats.medium ?? 0;
+  document.getElementById('statHigh').innerText = stats.high ?? 0;
+  riskChart.data.datasets[0].data = [stats.low ?? 0, stats.medium ?? 0, stats.high ?? 0];
+  riskChart.update();
+}
+
+// ── Event handler ─────────────────────────────────────────────────────
+function handleEvent(payload) {
+  if (payload.kind === 'action') {
+    prependRow('actionBody', 'actionEmpty', `
+      <td class="trace">${shortTrace(payload.trace_id)}</td>
+      <td><span class="badge ${payload.risk_level}">${payload.risk_level.replace('_RISK','')}</span></td>
+      <td style="font-size:12px;font-weight:500;">${payload.action}</td>
+      <td style="color:var(--muted);font-size:11px;">${(payload.contributing_agents||[]).join(', ')||'—'}</td>
+    `, 50);
+  } else if (payload.kind === 'finding') {
+    prependRow('findingBody', 'findingEmpty', `
+      <td style="font-weight:500;">${esc(payload.agent)}</td>
+      <td class="trace">${shortTrace(payload.trace_id)}</td>
+      <td><span class="badge ${payload.risk_level}">${payload.risk_level.replace('_RISK','')}</span></td>
+      <td>${payload.score}</td>
+    `, 50);
+    // ── Push into per-agent card feed ──────────────────────────────
+    pushAgentFeed(payload);
+  } else if (payload.kind === 'escalation') {
+    if (resolvedTraces.has(payload.trace_id)) return;
+    escalationsData.set(payload.trace_id, payload);
+    prependRow('escalationBody', 'escalationEmpty', `
+      <td style="color:var(--muted);">${fmtTime(payload.created_at)}</td>
+      <td class="trace">${shortTrace(payload.trace_id)}</td>
+      <td class="reason">${esc(payload.reason)}</td>
+      <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted);">${esc(payload.snippet)}</td>
+      <td><button class="btn btn-outline" onclick="openReview('${payload.trace_id}')">Review</button></td>
+    `, 30, `esc-${payload.trace_id}`, 'escalation-row');
+  } else if (payload.kind === 'resolved') {
+    resolvedTraces.add(payload.trace_id);
+    const row = document.getElementById(`esc-${payload.trace_id}`);
+    if (row) { row.classList.add('resolved'); const btn = row.querySelector('button'); if (btn) { btn.disabled = true; btn.innerText = 'Resolved'; } }
+  }
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────
+function openReview(traceId) {
+  const data = escalationsData.get(traceId);
+  if (!data) return;
+  currentReviewTrace = traceId;
+  document.getElementById('modalTrace').innerText = shortTrace(traceId);
+  document.getElementById('modalReason').innerText = data.reason;
+  document.getElementById('modalPrompt').innerText = data.prompt || 'N/A';
+  document.getElementById('modalSnippet').innerText = data.snippet || 'N/A';
+  const btn = document.getElementById('modalResolveBtn');
+  btn.disabled = false; btn.innerText = 'Approve & Resolve';
+  document.getElementById('hitlModal').classList.add('active');
+}
+function closeModal() { document.getElementById('hitlModal').classList.remove('active'); currentReviewTrace = null; }
+async function resolveCurrent() {
+  if (!currentReviewTrace) return;
+  const btn = document.getElementById('modalResolveBtn');
+  btn.disabled = true; btn.innerText = 'Resolving...';
+  try { await fetch(`/api/resolve/${currentReviewTrace}`, { method: 'POST' }); closeModal(); }
+  catch (err) { console.error(err); btn.disabled = false; btn.innerText = 'Retry'; }
+}
+
+// ── SSE ───────────────────────────────────────────────────────────────
+async function loadSummary() {
+  const res = await fetch('/api/summary');
+  const data = await res.json();
+  updateStats(data.stats);
+  (data.recent || []).slice().reverse().forEach(handleEvent);
+}
+function connect() {
+  const es = new EventSource('/api/events');
+  es.addEventListener('cp', (e) => { handleEvent(JSON.parse(e.data)); });
+  es.addEventListener('ping', (e) => {
+    updateStats(JSON.parse(e.data).stats);
+    document.getElementById('statusDot').style.background = 'var(--low)';
+    document.getElementById('statusDot').style.boxShadow = '0 0 10px var(--low)';
+  });
+  es.onerror = () => {
+    document.getElementById('statusDot').style.background = 'var(--high)';
+    document.getElementById('statusDot').style.boxShadow = '0 0 10px var(--high)';
+  };
+}
+
+loadSummary();
+connect();
+setInterval(async () => { const res = await fetch('/api/summary'); updateStats((await res.json()).stats); }, 5000);
+
+// ── Agent Cards & Drawer ─────────────────────────────────────────────
+const AGENT_META = {
+  cost:           { label: 'CostAgent',           icon: '💰', accent: 'var(--accent)', desc: 'Enforces session token budgets. Each finding represents a cost evaluation of one request.' },
+  performance:    { label: 'PerformanceAgent',    icon: '⚡', accent: 'var(--low)',    desc: 'Detects hallucinations via semantic grounding similarity score. Score near 0 = high hallucination risk.' },
+  responsibility: { label: 'ResponsibilityAgent', icon: '🛡', accent: 'var(--medium)', desc: 'Scans for PII/NER entities, toxicity, and policy violations. High risk = blocked or escalated.' },
+};
+
+async function refreshAgentCards() {
+  try {
+    const res = await fetch('/api/agents/stats');
+    const data = await res.json();
+    for (const [key, s] of Object.entries(data)) {
+      if (key === '_global') continue;
+      const tot = document.getElementById(`${key}-total`);
+      const lo  = document.getElementById(`${key}-low`);
+      const hi  = document.getElementById(`${key}-high`);
+      const avg = document.getElementById(`${key}-avg`);
+      if (tot) tot.innerText = s.total ?? 0;
+      if (lo)  lo.innerText  = s.low   ?? 0;
+      if (hi)  hi.innerText  = s.high  ?? 0;
+      if (avg) avg.innerText = s.avg_score !== null ? s.avg_score : '—';
+    }
+  } catch(e) { /* agents not yet ready */ }
+}
+refreshAgentCards();
+setInterval(refreshAgentCards, 6000);
+
+async function openAgentDrawer(key) {
+  const meta = AGENT_META[key];
+  document.getElementById('drawerTitle').innerHTML = `${meta.icon} ${meta.label}`;
+  document.getElementById('drawerBody').innerHTML = '<div class="drawer-empty">Loading insights...</div>';
+  document.getElementById('drawerOverlay').classList.add('active');
+  document.getElementById('agentDrawer').classList.add('open');
+
+  try {
+    const res  = await fetch('/api/agents/stats');
+    const data = await res.json();
+    const s    = data[key] || {};
+    const g    = data._global || {};
+    const total = s.total || 0;
+    const low   = s.low   || 0;
+    const med   = s.medium|| 0;
+    const high  = s.high  || 0;
+    const lowPct  = total ? Math.round(low  / total * 100) : 0;
+    const medPct  = total ? Math.round(med  / total * 100) : 0;
+    const highPct = total ? Math.round(high / total * 100) : 0;
+    const noData  = total === 0;
+
+    const recentRows = (s.recent || []).map(r => `
+      <tr>
+        <td style="font-family:monospace;color:var(--accent);font-size:12px;">${(r.trace_id||'').slice(0,8)}</td>
+        <td><span class="badge ${r.risk_level}">${(r.risk_level||'').replace('_RISK','')}</span></td>
+        <td style="color:var(--muted);font-size:12px;">${r.score ?? '—'}</td>
+        <td style="font-size:12px;line-height:1.4;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(r.reason||'')}</td>
+      </tr>`).join('');
+
+    let extraInfo = '';
+    if (key === 'cost') {
+      extraInfo = `
+      <div style="background: rgba(161,0,255,0.05); border: 1px solid rgba(161,0,255,0.2); border-radius: 10px; padding: 16px; margin: 20px 0;">
+        <h4 style="color: var(--accent); margin-bottom: 12px; font-size: 14px; display: flex; align-items: center; gap: 8px;">
+          <span>🔍</span> Cost Analysis & Budgeting Deep Dive
+        </h4>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div>
+            <div style="font-size:11px; color:var(--muted); text-transform:uppercase; font-weight:600; margin-bottom:4px;">Session Cap</div>
+            <div style="font-size:24px; font-weight:700; color:var(--text);">$0.50 <span style="font-size:12px; font-weight:500; color:var(--muted);">USD</span></div>
+            <div style="font-size:11px; color:var(--muted); margin-top:4px;">Hard limit across all requests</div>
+          </div>
+          <div>
+            <div style="font-size:11px; color:var(--muted); text-transform:uppercase; font-weight:600; margin-bottom:4px;">Pricing Model</div>
+            <div style="font-size:13px; color:var(--text); line-height:1.4;">
+              <b>Dynamic Engine</b><br>
+              <span style="color:var(--muted);">Automatically looks up realtime pricing for Qwen, GPT-4, Claude 3, Gemini, or falls back to env defaults based on API request metadata.</span>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px dashed rgba(161,0,255,0.2); display: flex; align-items: flex-start; gap: 12px;">
+          <span style="font-size: 20px;">⏱️</span>
+          <div style="font-size:12px; color:var(--muted); line-height:1.5;">
+            <strong>Real-time Evaluation:</strong> The CostAgent uses <code>tiktoken</code> to mathematically calculate exact token usage for the prompt and generated response in real-time. If the cumulative cost burn hits 75% of the cap, it issues a Medium risk warning. If it exceeds 100%, the stream is instantly blocked mid-generation.
+          </div>
+        </div>
+      </div>
+      `;
+    }
+
+    document.getElementById('drawerBody').innerHTML = `
+      <p style="color:var(--muted);font-size:13px;line-height:1.6;margin:0;">${meta.desc}</p>
+      ${extraInfo}
+      <div>
+        <div class="drawer-section-title">Current Session — Live Metrics</div>
+        <div class="metrics-grid">
+          <div class="metric-box"><div class="mv">${total}</div><div class="ml">Total Findings</div></div>
+          <div class="metric-box"><div class="mv" style="color:var(--low);">${low}</div><div class="ml">Low Risk</div></div>
+          <div class="metric-box"><div class="mv" style="color:var(--medium);">${med}</div><div class="ml">Medium Risk</div></div>
+          <div class="metric-box"><div class="mv" style="color:var(--high);">${high}</div><div class="ml">Blocked</div></div>
+        </div>
+        ${ noData ? '' : `
+        <div style="margin-top:16px;">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Risk distribution</div>
+          <div class="risk-bar">
+            <div class="rb-low"  style="flex:${lowPct};"></div>
+            <div class="rb-med"  style="flex:${medPct};"></div>
+            <div class="rb-high" style="flex:${highPct};"></div>
+            ${lowPct + medPct + highPct < 99 ? '<div class="rb-none"></div>' : ''}
+          </div>
+          <div style="display:flex;gap:16px;margin-top:6px;font-size:11px;color:var(--muted);">
+            <span>🟢 ${lowPct}% Low</span><span>🟠 ${medPct}% Medium</span><span>🔴 ${highPct}% High</span>
+          </div>
+        </div>` }
+      </div>
+
+      <div>
+        <div class="drawer-section-title">Global Session Stats (all agents combined)</div>
+        <div class="metrics-grid">
+          <div class="metric-box"><div class="mv">${g.total_requests ?? 0}</div><div class="ml">Total Requests</div></div>
+          <div class="metric-box"><div class="mv" style="color:var(--low);">${g.low ?? 0}</div><div class="ml">Passed</div></div>
+          <div class="metric-box"><div class="mv" style="color:var(--medium);">${g.medium ?? 0}</div><div class="ml">Edited</div></div>
+          <div class="metric-box"><div class="mv" style="color:var(--high);">${g.high ?? 0}</div><div class="ml">Blocked</div></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="drawer-section-title">Recent Findings (last 20)</div>
+        ${ recentRows ? `
+        <table class="drawer-table">
+          <thead><tr><th>Trace</th><th>Risk</th><th>Score</th><th>Reason</th></tr></thead>
+          <tbody>${recentRows}</tbody>
+        </table>` : '<div class="drawer-empty">No findings yet for this agent in the current session.</div>' }
+      </div>
+    `;
+  } catch(e) {
+    document.getElementById('drawerBody').innerHTML = '<div class="drawer-empty">Failed to load agent stats.</div>';
+  }
+}
+
+function closeDrawer() {
+  document.getElementById('drawerOverlay').classList.remove('active');
+  document.getElementById('agentDrawer').classList.remove('open');
+}
+
+// ── Per-agent card live feed ───────────────────────────────────────────
+const RISK_COLOR = { LOW_RISK: 'var(--low)', MEDIUM_RISK: 'var(--medium)', HIGH_RISK: 'var(--high)' };
+const RISK_LABEL = { LOW_RISK: 'OK', MEDIUM_RISK: 'WARN', HIGH_RISK: 'BLOCK' };
+const AGENT_KEY_MAP = { cost: 'cost', performance: 'performance', responsibility: 'responsibility' };
+
+function pushAgentFeed(payload) {
+  // Normalise agent name → card key
+  const raw = (payload.agent || '').toLowerCase();
+  let key = null;
+  for (const k of Object.keys(AGENT_KEY_MAP)) {
+    if (raw.includes(k)) { key = k; break; }
+  }
+  if (!key) return;
+
+  const feedEl = document.getElementById(`${key}-feed`);
+  if (!feedEl) return;
+
+  // Remove "waiting" placeholder on first real finding
+  const placeholder = feedEl.querySelector('[data-placeholder]');
+  if (placeholder) placeholder.remove();
+  const firstItalic = feedEl.querySelector('div[style*="italic"]');
+  if (firstItalic) firstItalic.remove();
+
+  const risk = payload.risk_level || 'LOW_RISK';
+  const color = RISK_COLOR[risk] || 'var(--muted)';
+  const label = RISK_LABEL[risk] || risk.replace('_RISK','');
+  const score = payload.score !== null && payload.score !== undefined ? ` · score ${payload.score}` : '';
+  const reason = (payload.reason || '').slice(0, 60) + ((payload.reason||'').length > 60 ? '…' : '');
+  const trace = (payload.trace_id || '').slice(0, 7);
+
+  const row = document.createElement('div');
+  row.style.cssText = `
+    display:flex; align-items:flex-start; gap:8px; padding:7px 10px;
+    background:rgba(0,0,0,0.03); border-radius:6px; border-left:3px solid ${color};
+    animation:fadeUp 0.25s ease; font-size:11px; line-height:1.4;
+  `;
+  row.innerHTML = `
+    <span style="color:${color};font-weight:700;flex-shrink:0;">${label}</span>
+    <span style="color:var(--accent);font-family:monospace;flex-shrink:0;">${trace}</span>
+    <span style="color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${reason || `trace ${trace}${score}`}</span>
+  `;
+
+  feedEl.prepend(row);
+  // Keep max 4 rows in card
+  while (feedEl.children.length > 4) feedEl.removeChild(feedEl.lastChild);
+}
+</script>
+</body>
+</html>

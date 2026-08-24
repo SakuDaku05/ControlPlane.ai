@@ -1,0 +1,73 @@
+version: "3.9"
+
+# Real-deployment topology: the sidecar proxy, the dashboard, and each of
+# the three micro-agents are independent, independently-scalable services
+# that only ever talk to each other through Redis — exactly the
+# decoupling spec 3.2.2 (Asynchronous Event Bus) calls for. For local
+# dev/demo convenience, `python -m controlplane.run_all` runs all of this
+# in one process instead; both entrypoints share 100% of the same code.
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  proxy:
+    build: .
+    command: ["uvicorn", "controlplane.proxy.app:app", "--host", "0.0.0.0", "--port", "8080"]
+    ports:
+      - "8080:8080"
+    env_file: [.env]
+    environment:
+      REDIS_HOST: redis
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  dashboard:
+    build: .
+    command: ["uvicorn", "controlplane.dashboard.app:app", "--host", "0.0.0.0", "--port", "8090"]
+    ports:
+      - "8090:8090"
+    env_file: [.env]
+    environment:
+      REDIS_HOST: redis
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  agent-performance:
+    build: .
+    command: ["python", "-m", "controlplane.run_agent", "performance"]
+    env_file: [.env]
+    environment:
+      REDIS_HOST: redis
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  agent-cost:
+    build: .
+    command: ["python", "-m", "controlplane.run_agent", "cost"]
+    env_file: [.env]
+    environment:
+      REDIS_HOST: redis
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  agent-responsibility:
+    build: .
+    command: ["python", "-m", "controlplane.run_agent", "responsibility"]
+    env_file: [.env]
+    environment:
+      REDIS_HOST: redis
+    depends_on:
+      redis:
+        condition: service_healthy

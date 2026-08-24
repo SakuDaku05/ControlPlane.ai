@@ -1,0 +1,24 @@
+# Core web/streaming stack
+starlette>=0.49.1
+uvicorn[standard]==0.46.0
+sse-starlette==3.3.4
+httpx==0.28.1
+pydantic==2.13.3
+python-dotenv==1.2.2
+
+# Grounding / hallucination retriever
+scikit-learn==1.8.0
+numpy==1.26.4
+
+# --- Redis -------------------------------------------------------------
+# controlplane/redis_client.py ships a minimal dependency-free async RESP
+# client so this project runs even in network-restricted environments
+# (e.g. the sandbox this was built in has no PyPI/apt egress at all).
+# In any environment with normal internet access, install the real client
+# for connection pooling / TLS / Sentinel / cluster support and swap
+# `from .redis_client import RedisClient` for `import redis.asyncio as redis`
+# in event_bus.py — the method names were chosen to match 1:1.
+redis==5.2.1
+chromadb==0.4.24
+tiktoken==0.8.0
+python-dotenv==1.2.2

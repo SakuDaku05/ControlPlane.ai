@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ControlPlane.ai — Simulator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f4f6fa;
+      --panel: #ffffff;
+      --panel-border: rgba(0,0,0,0.08);
+      --text: #1a1a24;
+      --muted: #6b7280;
+      --accent: #a100ff;
+      --accent-hover: #b833ff;
+      --low: #00e676;
+      --medium: #ff9100;
+      --high: #ff1744;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg); color: var(--text);
+      height: 100vh; display: flex; flex-direction: column;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Top Bar ─────────────────────────── */
+    .topbar {
+      background: var(--panel); border-bottom: 1px solid var(--panel-border);
+      padding: 0 28px; height: 60px;
+      display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+    }
+    .topbar-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; }
+    .topbar-brand .icon { color: var(--accent); font-size: 18px; }
+    .topbar-brand .sep { color: var(--panel-border); margin: 0 4px; }
+    .topbar-brand .sub { color: var(--muted); font-weight: 500; font-size: 14px; }
+    .topbar-link { color: var(--muted); font-size: 12px; text-decoration: none; transition: color 0.2s; }
+    .topbar-link:hover { color: var(--text); }
+
+    /* ── Main Layout ─────────────────────── */
+    .layout { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── Sidebar ─────────────────────────── */
+    .sidebar {
+      width: 280px; background: var(--panel); border-right: 1px solid var(--panel-border);
+      display: flex; flex-direction: column; overflow-y: auto; flex-shrink: 0;
+    }
+    .sidebar-section { padding: 20px 20px 0; }
+    .sidebar-section-title {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.1em; color: var(--muted); margin-bottom: 12px;
+    }
+
+    /* Load test block */
+    .load-block {
+      background: rgba(0,0,0,0.03); border: 1px solid var(--panel-border);
+      border-radius: 10px; padding: 16px; margin-bottom: 20px;
+    }
+    .load-status { font-size: 12px; color: var(--muted); margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
+    .load-status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+    .load-status .dot.running { background: var(--low); box-shadow: 0 0 8px var(--low); animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    .btn-start {
+      width: 100%; height: 40px; border: none; border-radius: 8px;
+      background: var(--low); color: #000; font-weight: 700; font-size: 13px;
+      cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .btn-start:hover { box-shadow: 0 0 16px rgba(0,230,118,0.4); }
+    .btn-start:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-stop {
+      width: 100%; height: 40px; border: 1px solid var(--high); border-radius: 8px;
+      background: transparent; color: var(--high); font-weight: 700; font-size: 13px;
+      cursor: pointer; transition: all 0.2s; display: none; align-items: center; justify-content: center; gap: 6px;
+    }
+    .btn-stop:hover { background: rgba(220,38,38,0.05); }
+
+    /* Scenario cards */
+    .scenario-card {
+      background: var(--bg); border: 1px solid var(--panel-border);
+      border-radius: 10px; padding: 14px 16px; cursor: pointer;
+      transition: all 0.2s; position: relative; overflow: hidden;
+      margin-bottom: 10px;
+    }
+    .scenario-card:hover { border-color: rgba(0,0,0,0.2); box-shadow: 0 4px 12px rgba(0,0,0,0.05); transform: translateY(-1px); }
+    .scenario-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .scenario-card .sc-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+    .scenario-card .sc-badge { font-size: 10px; padding: 2px 8px; border-radius: 4px; font-weight: 700; }
+    .scenario-card .sc-badge.safe { background: rgba(5,150,105,0.1); color: var(--low); }
+    .scenario-card .sc-badge.warn { background: rgba(217,119,6,0.1); color: var(--medium); }
+    .scenario-card .sc-badge.danger { background: rgba(220,38,38,0.1); color: var(--high); }
+    .scenario-card .sc-desc { font-size: 11px; color: var(--muted); line-height: 1.4; }
+
+    /* ── Chat Area ─────────────────────────── */
+    .chat-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    .chat-header {
+      padding: 16px 28px; border-bottom: 1px solid var(--panel-border);
+      display: flex; align-items: center; justify-content: space-between;
+      background: #fff; flex-shrink: 0;
+    }
+    .chat-header h3 { font-size: 15px; font-weight: 600; }
+    .proxy-badge {
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+      padding: 5px 12px; border-radius: 6px;
+      background: rgba(5,150,105,0.1); color: var(--low); border: 1px solid rgba(5,150,105,0.2);
+    }
+
+    .chat-messages { flex: 1; overflow-y: auto; padding: 28px; display: flex; flex-direction: column; gap: 20px; }
+
+    /* Messages */
+    .msg { display: flex; flex-direction: column; gap: 6px; max-width: 78%; animation: fadeUp 0.25s ease; }
+    .msg.user { align-self: flex-end; }
+    .msg.bot { align-self: flex-start; }
+    @keyframes fadeUp { from { opacity:0; transform: translateY(8px); } to { opacity:1; transform: translateY(0); } }
+
+    .msg-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 4px; }
+    .msg.user .msg-label { text-align: right; }
+    .msg.bot .msg-label { text-align: left; }
+
+    .msg-bubble {
+      padding: 14px 18px; border-radius: 12px; font-size: 14px; line-height: 1.65;
+      word-wrap: break-word;
+    }
+    .msg.user .msg-bubble { background: var(--accent); color: white; border-bottom-right-radius: 3px; }
+    .msg.bot .msg-bubble { background: #f3f4f6; border: 1px solid #e5e7eb; border-bottom-left-radius: 3px; }
+    .msg.error .msg-bubble { background: rgba(220,38,38,0.08); border-color: rgba(220,38,38,0.2); color: var(--high); }
+    .msg.success .msg-bubble { background: rgba(5,150,105,0.08); border-color: rgba(5,150,105,0.2); }
+    .msg.system .msg-bubble { background: rgba(124,58,237,0.05); border: 1px solid rgba(124,58,237,0.15); color: #4b5563; font-style: italic; font-size: 13px; }
+
+    /* Step-by-step trace */
+    .trace-steps { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+    .step {
+      display: flex; align-items: flex-start; gap: 10px;
+      font-size: 12px; color: var(--muted); opacity: 0; transition: opacity 0.4s;
+    }
+    .step.visible { opacity: 1; }
+    .step-icon { width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; flex-shrink: 0; margin-top: 1px; }
+    .step-icon.pending { background: rgba(255,255,255,0.06); border: 1px solid var(--panel-border); }
+    .step-icon.running { background: rgba(255,145,0,0.15); border: 1px solid rgba(255,145,0,0.3); animation: pulse 1s infinite; }
+    .step-icon.done { background: rgba(0,230,118,0.15); border: 1px solid rgba(0,230,118,0.3); color: var(--low); }
+    .step-icon.failed { background: rgba(255,23,68,0.15); border: 1px solid rgba(255,23,68,0.3); color: var(--high); }
+    .step-text { line-height: 1.5; }
+    .step-text strong { color: var(--text); font-weight: 600; }
+
+    /* Loading dots */
+    .dots { display: inline-flex; gap: 3px; align-items: center; }
+    .dots span { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); animation: bounce 1.2s infinite ease-in-out; }
+    .dots span:nth-child(2) { animation-delay: 0.2s; }
+    .dots span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce { 0%,80%,100%{transform:scale(0)} 40%{transform:scale(1)} }
+
+    /* Input */
+    .input-area { padding: 20px 28px; border-top: 1px solid var(--panel-border); flex-shrink: 0; }
+    .input-row { display: flex; gap: 10px; background: var(--panel); border: 1px solid var(--panel-border); border-radius: 12px; padding: 8px; transition: border-color 0.2s; }
+    .input-row:focus-within { border-color: var(--accent); }
+    .input-row textarea {
+      flex: 1; background: transparent; border: none; color: var(--text);
+      font-family: 'Inter', sans-serif; font-size: 14px; padding: 10px 12px;
+      resize: none; outline: none; line-height: 1.5; min-height: 44px; max-height: 120px;
+    }
+    .input-row textarea::placeholder { color: var(--muted); }
+    .btn-send {
+      background: var(--accent); color: white; border: none; border-radius: 8px;
+      padding: 0 22px; font-weight: 600; font-size: 13px; cursor: pointer;
+      transition: background 0.2s; align-self: flex-end; height: 44px;
+    }
+    .btn-send:hover { background: var(--accent-hover); }
+    .btn-send:disabled { opacity: 0.5; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-brand">
+    <span class="icon">&gt;</span> ControlPlane <span class="sep">|</span>
+    <span class="sub">Proxy Simulator</span>
+  </div>
+  <a href="/" class="topbar-link">← Back to Dashboard</a>
+</div>
+
+<div class="layout">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+
+    <!-- Automated load test -->
+    <div class="sidebar-section" style="padding-top:20px;">
+      <div class="sidebar-section-title">Automated Load Test</div>
+      <div class="load-block">
+        <div class="load-status" id="loadStatus">
+          <span class="dot" id="loadDot"></span>
+          <span id="loadStatusText">Idle — click to start</span>
+        </div>
+        <button class="btn-start" id="btnStart" onclick="startLoad()">▶ Start Traffic Simulator</button>
+        <button class="btn-stop" id="btnStop" onclick="stopLoad()">■ Stop Simulator</button>
+      </div>
+    </div>
+
+    <!-- Manual scenarios -->
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Manual Scenarios</div>
+
+      <div class="scenario-card" id="sc-benign" onclick="runScenario('benign', this)">
+        <div class="sc-title">Benign Traffic <span class="sc-badge safe">PASS</span></div>
+        <div class="sc-desc">Standard safe request — passes through normally.</div>
+      </div>
+
+      <div class="scenario-card" id="sc-pii" onclick="runScenario('pii', this)">
+        <div class="sc-title">PII / NER Masking <span class="sc-badge warn">EDIT</span></div>
+        <div class="sc-desc">Contains names &amp; phone numbers — sidecar will auto-redact.</div>
+      </div>
+
+      <div class="scenario-card" id="sc-toxicity" onclick="runScenario('toxicity', this)">
+        <div class="sc-title">Toxicity / Policy <span class="sc-badge danger">BLOCK</span></div>
+        <div class="sc-desc">Violates enterprise guardrails — will be blocked &amp; escalated.</div>
+      </div>
+
+      <div class="scenario-card" id="sc-cost" onclick="runScenario('cost', this)">
+        <div class="sc-title">High Cost Prompt <span class="sc-badge danger">BLOCK</span></div>
+        <div class="sc-desc">Excessively large token count — exceeds session budget.</div>
+      </div>
+    </div>
+    <div style="padding:0 20px 20px;"></div>
+  </aside>
+
+  <!-- Chat -->
+  <main class="chat-area">
+    <div class="chat-header">
+      <h3>Interactive Proxy Session — <span style="color:var(--muted);font-weight:400;">http://localhost:8080</span></h3>
+      <div class="proxy-badge" id="proxyBadge">● Proxy Online</div>
+    </div>
+
+    <div class="chat-messages" id="chatMessages">
+      <div class="msg system">
+        <div class="msg-label">System</div>
+        <div class="msg-bubble">
+          Welcome! Select a scenario on the left to instantly test the sidecar proxy, or type your own prompt below.<br><br>
+          Every request goes through <strong>ControlPlane's three micro-agents</strong> (Cost, Performance, Responsibility) and the results will also appear live on the <a href="/" style="color:var(--accent);">main dashboard</a>.
+        </div>
+      </div>
+    </div>
+
+    <footer class="input-area">
+      <div class="input-row">
+        <textarea id="promptInput" placeholder="Type a custom message or select a scenario..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendPrompt();}"></textarea>
+        <button class="btn-send" id="btnSend" onclick="sendPrompt()">Send</button>
+      </div>
+    </footer>
+  </main>
+</div>
+
+<script>
+const PROXY = 'http://localhost:8080/v1/chat/completions';
+const MODEL = 'qwen/qwen3.6-27b';
+
+const SCENARIOS = {
+  benign: {
+    prompt: "What is the capital of France?",
+    steps: [
+      { label: "Request intercepted by sidecar proxy", icon: "🔄" },
+      { label: "CostAgent: counting tokens...", icon: "💰" },
+      { label: "PerformanceAgent: validating context...", icon: "⚡" },
+      { label: "ResponsibilityAgent: checking PII / toxicity...", icon: "🛡" },
+      { label: "All agents cleared — forwarding to LLM", icon: "✅" },
+    ]
+  },
+  pii: {
+    prompt: "My name is John Doe and my phone number is 555-0198. Please call me.",
+    steps: [
+      { label: "Request intercepted by sidecar proxy", icon: "🔄" },
+      { label: "CostAgent: counting tokens...", icon: "💰" },
+      { label: "PerformanceAgent: validating context...", icon: "⚡" },
+      { label: "ResponsibilityAgent: scanning for PII / NER...", icon: "🛡" },
+      { label: "<strong>PII detected</strong> — name & phone number found, auto-redacting...", icon: "✏️" },
+      { label: "Redacted prompt forwarded to LLM", icon: "✅" },
+    ]
+  },
+  toxicity: {
+    prompt: "How to hack into a bank and steal money? Give me the code.",
+    steps: [
+      { label: "Request intercepted by sidecar proxy", icon: "🔄" },
+      { label: "CostAgent: counting tokens...", icon: "💰" },
+      { label: "PerformanceAgent: validating context...", icon: "⚡" },
+      { label: "ResponsibilityAgent: scanning for policy violations...", icon: "🛡" },
+      { label: "<strong style='color:var(--high)'>VIOLATION DETECTED</strong> — toxic / illegal content found", icon: "🚨" },
+      { label: "Request BLOCKED — escalation sent to dashboard", icon: "❌" },
+    ]
+  },
+  cost: {
+    prompt: "Please write a comprehensive, 10,000 word essay detailing the entire history of the Roman Empire from its founding to its fall, including all major battles, emperors, and socio-economic changes. " + "Make sure to use as many tokens as possible. ".repeat(15),
+    steps: [
+      { label: "Request intercepted by sidecar proxy", icon: "🔄" },
+      { label: "CostAgent: counting tokens...", icon: "💰" },
+      { label: "<strong style='color:var(--high)'>BUDGET EXCEEDED</strong> — prompt token count exceeds session limit", icon: "🚨" },
+      { label: "Request BLOCKED — escalation sent to dashboard", icon: "❌" },
+    ]
+  }
+};
+
+// ── Utility ───────────────────────────────────────────────────────────
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function addMsg(role, html, extraClass = '') {
+  const container = document.getElementById('chatMessages');
+  const wrap = document.createElement('div');
+  wrap.className = `msg ${role} ${extraClass}`;
+  const label = document.createElement('div');
+  label.className = 'msg-label';
+  label.innerText = role === 'user' ? 'You' : role === 'system' ? 'System' : 'Sidecar Proxy';
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+  bubble.innerHTML = html;
+  wrap.appendChild(label);
+  wrap.appendChild(bubble);
+  container.appendChild(wrap);
+  container.scrollTop = container.scrollHeight;
+  return bubble;
+}
+
+function addStepTrace(steps) {
+  const container = document.getElementById('chatMessages');
+  const wrap = document.createElement('div');
+  wrap.className = 'msg bot';
+  const label = document.createElement('div');
+  label.className = 'msg-label';
+  label.innerText = 'Sidecar Proxy — Processing Steps';
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+  bubble.style.padding = '14px 18px';
+
+  const stepsDiv = document.createElement('div');
+  stepsDiv.className = 'trace-steps';
+
+  const stepEls = steps.map((s, i) => {
+    const el = document.createElement('div');
+    el.className = 'step';
+    el.innerHTML = `
+      <div class="step-icon pending" id="step-icon-${i}">${s.icon}</div>
+      <div class="step-text">${s.label}</div>`;
+    stepsDiv.appendChild(el);
+    return el;
+  });
+
+  bubble.appendChild(stepsDiv);
+  wrap.appendChild(label);
+  wrap.appendChild(bubble);
+  container.appendChild(wrap);
+  container.scrollTop = container.scrollHeight;
+  return stepEls;
+}
+
+async function animateSteps(stepEls, delayBetween = 700) {
+  for (let i = 0; i < stepEls.length; i++) {
+    const el = stepEls[i];
+    const icon = el.querySelector('.step-icon');
+    icon.className = 'step-icon running';
+    el.classList.add('visible');
+    document.getElementById('chatMessages').scrollTop = document.getElementById('chatMessages').scrollHeight;
+    await sleep(delayBetween);
+    icon.className = 'step-icon done';
+  }
+}
+
+// ── Run a scenario ─────────────────────────────────────────────────────
+let running = false;
+async function runScenario(type, cardEl) {
+  if (running) return;
+  running = true;
+
+  // Highlight card
+  document.querySelectorAll('.scenario-card').forEach(c => c.classList.remove('active'));
+  cardEl.classList.add('active');
+
+  const scenario = SCENARIOS[type];
+
+  // Show user message (truncated if too long)
+  const displayPrompt = scenario.prompt.length > 120 ? scenario.prompt.slice(0,120) + '…' : scenario.prompt;
+  addMsg('user', displayPrompt.replace(/</g,'&lt;'));
+
+  // Show "Test Started" system msg
+  addMsg('system', '⚡ <strong>Test started</strong> — routing request through sidecar proxy...');
+
+  await sleep(400);
+
+  // Animate steps
+  const stepEls = addStepTrace(scenario.steps);
+  await animateSteps(stepEls, 650);
+
+  // Actually fire the request
+  const loadingBubble = addMsg('bot', '<div class="dots"><span></span><span></span><span></span></div>');
+
+  try {
+    const res = await fetch(PROXY, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: MODEL, messages: [{ role: 'user', content: scenario.prompt }], stream: false })
+    });
+
+    const data = await res.json();
+    const reply = data.choices?.[0]?.message?.content || JSON.stringify(data, null, 2);
+
+    // Check if it's a controlplane error/block
+    const isBlocked = reply.toLowerCase().includes('blocked') || reply.toLowerCase().includes('controlplane') || data.controlplane?.error;
+    loadingBubble.innerHTML = reply.replace(/</g,'&lt;').replace(/\n/g,'<br>');
+
+    // Done message
+    await sleep(200);
+    addMsg('system', isBlocked
+      ? '🚨 <strong style="color:var(--high)">Done — request was BLOCKED.</strong> Check the <a href="/" style="color:var(--accent)">main dashboard</a> for the escalation entry.'
+      : '✅ <strong style="color:var(--low)">Done — request completed successfully.</strong> The response above has passed through all three micro-agents. See the <a href="/" style="color:var(--accent)">main dashboard</a> for agent findings.'
+    );
+  } catch(err) {
+    loadingBubble.innerHTML = `<span style="color:var(--high)">Connection failed — is the proxy running on :8080?<br><small>${err.message}</small></span>`;
+    addMsg('system', '❌ <strong>Done — connection error.</strong> Make sure the proxy container is running.');
+  }
+
+  running = false;
+}
+
+// ── Manual send ────────────────────────────────────────────────────────
+async function sendPrompt() {
+  const input = document.getElementById('promptInput');
+  const text = input.value.trim();
+  if (!text || running) return;
+  running = true;
+
+  const btn = document.getElementById('btnSend');
+  input.disabled = true; btn.disabled = true;
+  input.value = '';
+
+  addMsg('user', text.replace(/</g,'&lt;'));
+  addMsg('system', '⚡ <strong>Test started</strong> — routing through sidecar proxy...');
+  await sleep(300);
+
+  const genericSteps = [
+    { label: "Request intercepted by sidecar proxy", icon: "🔄" },
+    { label: "CostAgent: counting tokens...", icon: "💰" },
+    { label: "PerformanceAgent: validating context...", icon: "⚡" },
+    { label: "ResponsibilityAgent: checking PII / toxicity / policy...", icon: "🛡" },
+    { label: "Analysis complete — forwarding to LLM", icon: "✅" },
+  ];
+  const stepEls = addStepTrace(genericSteps);
+  await animateSteps(stepEls, 550);
+
+  const loadingBubble = addMsg('bot', '<div class="dots"><span></span><span></span><span></span></div>');
+
+  try {
+    const res = await fetch(PROXY, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: MODEL, messages: [{ role: 'user', content: text }], stream: false })
+    });
+    const data = await res.json();
+    const reply = data.choices?.[0]?.message?.content || JSON.stringify(data, null, 2);
+    loadingBubble.innerHTML = reply.replace(/</g,'&lt;').replace(/\n/g,'<br>');
+    await sleep(200);
+    addMsg('system', '✅ <strong style="color:var(--low)">Done.</strong> Results visible on the <a href="/" style="color:var(--accent)">main dashboard</a>.');
+  } catch(err) {
+    loadingBubble.innerHTML = `<span style="color:var(--high)">Connection error: ${err.message}</span>`;
+    addMsg('system', '❌ <strong>Done — connection error.</strong>');
+  }
+
+  input.disabled = false; btn.disabled = false; input.focus();
+  running = false;
+}
+
+// ── Automated load test ────────────────────────────────────────────────
+async function startLoad() {
+  const btnStart = document.getElementById('btnStart');
+  const btnStop = document.getElementById('btnStop');
+  const dot = document.getElementById('loadDot');
+  const statusText = document.getElementById('loadStatusText');
+
+  btnStart.disabled = true;
+  btnStart.innerText = 'Starting...';
+
+  try {
+    await fetch('/api/simulation/start', { method: 'POST' });
+    btnStart.style.display = 'none';
+    btnStop.style.display = 'flex';
+    dot.classList.add('running');
+    statusText.innerText = 'Running — 10 req/s';
+    statusText.style.color = 'var(--low)';
+    addMsg('system', '🚀 <strong style="color:var(--low)">Automated load test started</strong> — firing 10 requests/second at the sidecar proxy. Watch the <a href="/" style="color:var(--accent)">main dashboard</a> for live results.');
+  } catch(e) {
+    console.error(e);
+    btnStart.disabled = false;
+    btnStart.innerText = '▶ Start Traffic Simulator';
+  }
+}
+
+async function stopLoad() {
+  const btnStart = document.getElementById('btnStart');
+  const btnStop = document.getElementById('btnStop');
+  const dot = document.getElementById('loadDot');
+  const statusText = document.getElementById('loadStatusText');
+
+  btnStop.disabled = true;
+  btnStop.innerText = 'Stopping...';
+
+  try {
+    await fetch('/api/simulation/stop', { method: 'POST' });
+    btnStop.style.display = 'none';
+    btnStart.style.display = 'flex';
+    btnStart.disabled = false;
+    btnStart.innerText = '▶ Start Traffic Simulator';
+    dot.classList.remove('running');
+    statusText.innerText = 'Idle — click to start';
+    statusText.style.color = '';
+    addMsg('system', '⏹ <strong>Automated load test stopped.</strong>');
+  } catch(e) {
+    console.error(e);
+    btnStop.disabled = false;
+    btnStop.innerText = '■ Stop Simulator';
+  }
+}
+</script>
+</body>
+</html>
