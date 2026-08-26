@@ -16,8 +16,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import httpx
 from contextlib import asynccontextmanager
 from pathlib import Path
+from ..config import settings
 
 from sse_starlette.sse import EventSourceResponse
 from starlette.applications import Starlette
@@ -50,6 +52,23 @@ _sim_task: asyncio.Task | None = None
 _sim_stop_event: asyncio.Event | None = None
 
 AGENT_NAMES = ["cost", "performance", "responsibility"]
+AGENT_REPORT_PROFILES = {
+    "cost": {
+        "title": "CostAgent Budget & Spend Report",
+        "focus": "token usage, estimated spend, budget burn, rate limits, and cost anomalies",
+        "sections": "Executive Summary, Spend & Token Analysis, Budget Risk, and Cost Controls",
+    },
+    "performance": {
+        "title": "PerformanceAgent Grounding & Hallucination Report",
+        "focus": "semantic grounding scores, unsupported claims, hallucination risk, and response quality",
+        "sections": "Executive Summary, Grounding Analysis, Hallucination Findings, and Quality Recommendations",
+    },
+    "responsibility": {
+        "title": "ResponsibilityAgent Safety & Policy Report",
+        "focus": "PII exposure, toxicity, policy violations, safety risk, and required mitigations",
+        "sections": "Executive Summary, Safety Findings, Policy Impact, and Remediation Actions",
+    },
+}
 _agent_stats: dict = {
     name: {
         "total": 0,
@@ -135,26 +154,43 @@ async def _consume_loop() -> None:
                             s["scores"].pop(0)
                     rec = {
                         "trace_id": finding.trace_id,
+                        "event_id": finding.event_id,
+                        "agent": finding.agent,
                         "risk_level": finding.risk_level.value,
                         "score": finding.score,
                         "reason": finding.reason,
+                        "details": finding.details,
                         "created_at": finding.created_at,
                     }
                     s["recent"].append(rec)
-                    if len(s["recent"]) > 20:
+                    if len(s["recent"]) > 100:
                         s["recent"].pop(0)
                 # ──────────────────────────────────────────────────────
                 await bus.ack_finding("cp-agents:dashboard-results", eid)
 
             escalations = await bus.consume_escalations("cp-agents:dashboard-escalations", count=20, block_ms=100)
             for eid, esc in escalations:
+                related_findings = [
+                    finding
+                    for agent_stats in _agent_stats.values()
+                    for finding in agent_stats["recent"]
+                    if finding["trace_id"] == esc.trace_id
+                ]
+                related_actions = [
+                    action
+                    for action in reversed(_recent)
+                    if action.get("kind") == "action" and action.get("trace_id") == esc.trace_id
+                ]
                 payload = {
                     "kind": "escalation",
+                    "escalation_id": esc.escalation_id,
                     "trace_id": esc.trace_id,
                     "risk_level": esc.risk_level.value,
                     "reason": esc.reason,
                     "snippet": esc.snippet,
                     "prompt": esc.prompt,
+                    "findings": related_findings,
+                    "actions": related_actions,
                     "created_at": esc.created_at,
                 }
                 _broadcast(payload)
@@ -265,12 +301,64 @@ async def simulator(request: Request):
     return FileResponse(STATIC_DIR / "simulator.html")
 
 
+async def generate_agent_report(request: Request) -> JSONResponse:
+    agent_id = request.path_params["agent_id"]
+    if agent_id not in _agent_stats:
+        return JSONResponse({"error": "Agent not found"}, status_code=404)
+        
+    s = _agent_stats[agent_id]
+    findings = list(reversed(s["recent"]))
+    
+    if not findings:
+        return JSONResponse({"report": f"No findings available for the {agent_id} agent in the current session. Run a simulation first!"})
+
+    profile = AGENT_REPORT_PROFILES[agent_id]
+    prompt = (
+        f"You are generating the {profile['title']}. Analyze findings only through the lens of this agent's purpose: {profile['focus']}.\n"
+        f"Here are the most recent {len(findings)} findings from the current live session:\n\n"
+        f"{json.dumps(findings, indent=2)}\n\n"
+        f"Return a concise, professional markdown report titled exactly '# {profile['title']}'. "
+        f"Use these sections: {profile['sections']}. "
+        f"Do not discuss metrics outside this agent's responsibility, invent data, or include conversational filler."
+    )
+    
+    body = {
+        "model": settings.report_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.2
+    }
+    
+    headers = {
+        "Authorization": f"Bearer {settings.openai_api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # We strip trailing / from base url just in case
+            base_url = settings.openai_base_url.rstrip("/")
+            url = f"{base_url}/chat/completions" if "/v1" in base_url else f"{base_url}/v1/chat/completions"
+            if "groq" not in base_url.lower():
+                  body["model"] = "gpt-4o-mini"
+            resp = await client.post(url, json=body, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+            report = data.get("choices", [{}])[0].get("message", {}).get("content", "Error generating report.")
+            if not report.lstrip().startswith(f"# {profile['title']}"):
+                report = f"# {profile['title']}\n\n{report.lstrip()}"
+            return JSONResponse({"title": profile["title"], "report": report})
+    except Exception as e:
+        logger.exception("Failed to generate report")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 app = Starlette(
     routes=[
         Route("/", index, methods=["GET"]),
         Route("/simulator", simulator, methods=["GET"]),
         Route("/api/summary", summary, methods=["GET"]),
         Route("/api/agents/stats", agent_stats, methods=["GET"]),
+        Route("/api/agents/{agent_id}/report", generate_agent_report, methods=["POST"]),
         Route("/api/resolve/{trace_id}", resolve_escalation, methods=["POST"]),
         Route("/api/simulation/start", start_simulation, methods=["POST"]),
         Route("/api/simulation/stop", stop_simulation, methods=["POST"]),

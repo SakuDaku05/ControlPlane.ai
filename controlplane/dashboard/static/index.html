@@ -8,6 +8,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <style>
   :root {
     --bg: #f4f6fa;
@@ -165,6 +167,14 @@
   .data-label { font-size: 11px; color: var(--muted); text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em; }
   .data-value { background: rgba(0,0,0,0.03); border: 1px solid var(--panel-border); border-radius: 8px; padding: 14px; font-family: 'SFMono-Regular', Consolas, monospace; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
   .data-reason { color: var(--high); font-weight: 600; font-size: 14px; }  /* Agent Cards */
+  .trace-timeline { display: flex; flex-direction: column; gap: 8px; }
+  .trace-span { background: rgba(0,0,0,0.03); border: 1px solid var(--panel-border); border-left: 3px solid var(--accent); border-radius: 6px; padding: 10px 12px; }
+  .trace-span-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+  .trace-span-service { color: var(--accent); font-family: 'SFMono-Regular', Consolas, monospace; font-weight: 700; }
+  .trace-span-event { color: var(--text); font-weight: 600; }
+  .trace-span-status { color: var(--high); font-family: 'SFMono-Regular', Consolas, monospace; font-size: 10px; }
+  .trace-span-meta, .trace-span-attributes { color: var(--muted); font-family: 'SFMono-Regular', Consolas, monospace; font-size: 10px; margin-top: 4px; word-break: break-word; }
+  .trace-span-detail { color: var(--text); font-size: 12px; line-height: 1.4; margin-top: 6px; word-break: break-word; }
   .agent-card {
     background: var(--panel); border: 1px solid var(--panel-border);
     border-radius: 12px; padding: 24px; cursor: pointer;
@@ -543,6 +553,18 @@
     </div>
     <div class="modal-body">
       <div class="data-group">
+        <div class="data-label">Trace Details</div>
+        <div class="data-value" id="modalTraceDetails"></div>
+      </div>
+      <div class="data-group">
+        <div class="data-label">Agent Findings</div>
+        <div class="data-value" id="modalFindings"></div>
+      </div>
+      <div class="data-group">
+        <div class="data-label">Trace Timeline</div>
+        <div id="modalTraceTimeline" class="trace-timeline"></div>
+      </div>
+      <div class="data-group">
         <div class="data-label">Violated Policy</div>
         <div class="data-reason" id="modalReason"></div>
       </div>
@@ -685,6 +707,40 @@ function openReview(traceId) {
   document.getElementById('modalReason').innerText = data.reason;
   document.getElementById('modalPrompt').innerText = data.prompt || 'N/A';
   document.getElementById('modalSnippet').innerText = data.snippet || 'N/A';
+  const findingSummary = (data.findings || []).map(finding => {
+    const details = Object.entries(finding.details || {}).map(([name, value]) => `${name}: ${JSON.stringify(value)}`).join(' | ');
+    return `${finding.agent || 'agent'} · ${finding.risk_level || 'UNKNOWN'} · score ${finding.score ?? '—'} · ${finding.reason || 'No reason'}${details ? ` · ${details}` : ''}`;
+  }).join('\n');
+  const actionSummary = (data.actions || []).map(action => `${action.action || 'UNKNOWN'} · ${action.risk_level || 'UNKNOWN'} · ${action.reason || 'No reason'} · agents: ${(action.contributing_agents || []).join(', ') || '—'}`).join('\n');
+  document.getElementById('modalTraceDetails').innerText = `Full trace: ${data.trace_id}\nEscalation: ${data.escalation_id || 'N/A'}\nTime: ${fmtTime(data.created_at)}\nAction: BLOCK_AND_ESCALATE${actionSummary ? `\nDecision: ${actionSummary}` : ''}`;
+  document.getElementById('modalFindings').innerText = findingSummary || 'No agent finding was received before this escalation.';
+  const timeline = [
+    ...(data.actions || []).map(action => ({
+      time: action.created_at,
+      service: 'action-engine',
+      event: action.action || 'decision',
+      status: action.risk_level || 'UNKNOWN',
+      detail: action.reason || 'No decision reason',
+      attributes: `agents=${(action.contributing_agents || []).join(', ') || 'none'}`,
+    })),
+    ...(data.findings || []).map(finding => ({
+      time: finding.created_at,
+      service: finding.agent || 'agent',
+      event: 'finding',
+      status: finding.risk_level || 'UNKNOWN',
+      detail: finding.reason || 'No finding reason',
+      attributes: `score=${finding.score ?? '—'}${Object.keys(finding.details || {}).length ? ` · ${Object.entries(finding.details).map(([name, value]) => `${name}=${JSON.stringify(value)}`).join(', ')}` : ''}`,
+    })),
+    { time: data.created_at, service: 'hitl-dashboard', event: 'escalation', status: data.risk_level || 'HIGH_RISK', detail: data.reason || 'Escalated for review', attributes: `escalation_id=${data.escalation_id || '—'}` },
+  ].filter(span => Number.isFinite(Number(span.time))).sort((a, b) => a.time - b.time);
+  const firstTime = timeline[0]?.time;
+  document.getElementById('modalTraceTimeline').innerHTML = timeline.length ? timeline.map(span => `
+    <div class="trace-span">
+      <div class="trace-span-line"><span class="trace-span-service">${esc(span.service)}</span><span class="trace-span-event">${esc(span.event)}</span><span class="trace-span-status">${esc(span.status)}</span></div>
+      <div class="trace-span-meta">+${Math.max(0, (span.time - firstTime) * 1000).toFixed(1)} ms · ${esc(fmtTime(span.time))}</div>
+      <div class="trace-span-detail">${esc(span.detail)}</div>
+      <div class="trace-span-attributes">${esc(span.attributes)}</div>
+    </div>`).join('') : '<div class="data-value">No trace spans available.</div>';
   const btn = document.getElementById('modalResolveBtn');
   btn.disabled = false; btn.innerText = 'Approve & Resolve';
   document.getElementById('hitlModal').classList.add('active');
@@ -847,7 +903,18 @@ async function openAgentDrawer(key) {
       </div>
 
       <div>
-        <div class="drawer-section-title">Recent Findings (last 20)</div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+          <div class="drawer-section-title" style="margin-bottom:0;">${meta.label} Report</div>
+          <div>
+            <button class="btn btn-outline" style="padding:6px 12px; font-size:11px;" id="btnGenerateReport" onclick="generateReport('${key}')">Generate Report</button>
+            <button class="btn btn-outline" style="padding:6px 12px; font-size:11px; display:none;" id="btnDownloadPdf" onclick="downloadReportPdf('${key}')">Download PDF</button>
+          </div>
+        </div>
+        <div id="reportContainer" style="background: var(--panel); border: 1px solid var(--panel-border); border-radius: 8px; padding: 16px; font-size: 13px; line-height: 1.6; display: none; margin-bottom: 24px;"></div>
+      </div>
+
+      <div>
+        <div class="drawer-section-title">Recent Findings</div>
         ${ recentRows ? `
         <table class="drawer-table">
           <thead><tr><th>Trace</th><th>Risk</th><th>Score</th><th>Reason</th></tr></thead>
@@ -858,6 +925,43 @@ async function openAgentDrawer(key) {
   } catch(e) {
     document.getElementById('drawerBody').innerHTML = '<div class="drawer-empty">Failed to load agent stats.</div>';
   }
+}
+
+async function generateReport(agentId) {
+  const btn = document.getElementById('btnGenerateReport');
+  const container = document.getElementById('reportContainer');
+  btn.disabled = true;
+  btn.innerText = 'Generating...';
+  container.style.display = 'block';
+  container.innerHTML = '<div style="color:var(--muted); text-align:center; padding: 20px;">Analyzing findings and generating report...</div>';
+  
+  try {
+      const res = await fetch(`/api/agents/${agentId}/report`, { method: 'POST' });
+      const data = await res.json();
+      if (data.report) {
+          container.innerHTML = marked.parse(data.report);
+          document.getElementById('btnDownloadPdf').style.display = 'inline-block';
+      } else {
+          container.innerHTML = `<div style="color:var(--high);">${data.error || 'Failed to generate report.'}</div>`;
+      }
+  } catch(e) {
+      container.innerHTML = '<div style="color:var(--high);">Error connecting to server.</div>';
+  } finally {
+      btn.disabled = false;
+      btn.innerText = 'Regenerate Report';
+  }
+}
+
+function downloadReportPdf(agentId) {
+  const element = document.getElementById('reportContainer');
+  const opt = {
+      margin:       10,
+      filename:     `${agentId}-agent-report.pdf`,
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { scale: 2 },
+      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+  };
+  html2pdf().set(opt).from(element).save();
 }
 
 function closeDrawer() {

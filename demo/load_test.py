@@ -2,6 +2,7 @@ import asyncio
 import httpx
 import random
 import logging
+from controlplane.config import settings
 
 logger = logging.getLogger("controlplane.demo.load_test")
 
@@ -26,9 +27,11 @@ PROMPTS = [
 
 async def fire_request(client: httpx.AsyncClient):
     msg = random.choice(PROMPTS)
+    host = "127.0.0.1" if settings.proxy_host == "0.0.0.0" else settings.proxy_host
+    url = f"http://{host}:{settings.proxy_port}/v1/chat/completions"
     try:
         await client.post(
-            "http://proxy:8080/v1/chat/completions",
+            url,
             json={
                 "model": "qwen/qwen3.6-27b",
                 "messages": [msg],

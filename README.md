@@ -71,7 +71,7 @@ No API keys are required for the demo — every scenario runs against the built-
    ```bash
    docker-compose up --build
    ```
-4. Access the **ControlPlane Dashboard** at `http://localhost:5173`
+4. Access the **ControlPlane Dashboard** at `http://localhost:8090`
 5. The proxy is now listening on `http://localhost:8080/v1/chat/completions`
 
 ### Running Tests
