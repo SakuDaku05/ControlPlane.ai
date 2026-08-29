@@ -302,6 +302,53 @@ const SCENARIOS = {
 // ── Utility ───────────────────────────────────────────────────────────
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+function formatAssistantReply(value) {
+  const text = String(value ?? '')
+    .replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, '')
+    .replace(/<\/think\b[^>]*>/gi, '')
+    .replace(/<think\b[^>]*>/gi, '')
+    .trim();
+  const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return escaped
+    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+}
+
+function getBlockedState(data, replyText = '') {
+  const meta = data?.controlplane ?? {};
+  const text = String(replyText ?? '');
+  const normalized = text.toLowerCase();
+
+  if (meta.blocked === true || meta.error || data?.choices?.[0]?.finish_reason === 'content_filter') {
+    return {
+      blocked: true,
+      reason: meta.reason || meta.error || 'High-risk issue detected',
+    };
+  }
+
+  if (normalized.includes('controlplane.ai blocked') || normalized.includes('blocked the remainder of this response') || normalized.includes('request blocked')) {
+    return {
+      blocked: true,
+      reason: meta.reason || 'High-risk issue detected',
+    };
+  }
+
+  return { blocked: false, reason: '' };
+}
+
+function renderProxyResponse(data, replyText = '') {
+  const blocked = getBlockedState(data, replyText);
+  if (!blocked.blocked) {
+    return formatAssistantReply(replyText);
+  }
+
+  const reason = String(blocked.reason || 'High-risk issue detected').replace(/[\r\n]+/g, ' ').trim();
+  return `
+    <span style="color:var(--high)"><strong>⚠️ High-risk issue detected.</strong> This request requires escalation and cannot be answered.</span>
+    <br><small>Reason: ${reason}</small>
+  `;
+}
+
 function addMsg(role, html, extraClass = '') {
   const container = document.getElementById('chatMessages');
   const wrap = document.createElement('div');
@@ -400,15 +447,13 @@ async function runScenario(type, cardEl) {
 
     const data = await res.json();
     const reply = data.choices?.[0]?.message?.content || JSON.stringify(data, null, 2);
-
-    // Check if it's a controlplane error/block
-    const isBlocked = reply.toLowerCase().includes('blocked') || reply.toLowerCase().includes('controlplane') || data.controlplane?.error;
-    loadingBubble.innerHTML = reply.replace(/</g,'&lt;').replace(/\n/g,'<br>');
+    const blockedState = getBlockedState(data, reply);
+    loadingBubble.innerHTML = renderProxyResponse(data, reply);
 
     // Done message
     await sleep(200);
-    addMsg('system', isBlocked
-      ? '🚨 <strong style="color:var(--high)">Done — request was BLOCKED.</strong> Check the <a href="/" style="color:var(--accent)">main dashboard</a> for the escalation entry.'
+    addMsg('system', blockedState.blocked
+      ? '🚨 <strong style="color:var(--high)">Done — request was BLOCKED due to a high-risk issue.</strong> Check the <a href="/" style="color:var(--accent)">main dashboard</a> for the escalation entry.'
       : '✅ <strong style="color:var(--low)">Done — request completed successfully.</strong> The response above has passed through all three micro-agents. See the <a href="/" style="color:var(--accent)">main dashboard</a> for agent findings.'
     );
   } catch(err) {
@@ -454,9 +499,13 @@ async function sendPrompt() {
     });
     const data = await res.json();
     const reply = data.choices?.[0]?.message?.content || JSON.stringify(data, null, 2);
-    loadingBubble.innerHTML = reply.replace(/</g,'&lt;').replace(/\n/g,'<br>');
+    const blockedState = getBlockedState(data, reply);
+    loadingBubble.innerHTML = renderProxyResponse(data, reply);
     await sleep(200);
-    addMsg('system', '✅ <strong style="color:var(--low)">Done.</strong> Results visible on the <a href="/" style="color:var(--accent)">main dashboard</a>.');
+    addMsg('system', blockedState.blocked
+      ? '🚨 <strong style="color:var(--high)">High-risk issue detected.</strong> This request was blocked and escalated for review.'
+      : '✅ <strong style="color:var(--low)">Done.</strong> Results visible on the <a href="/" style="color:var(--accent)">main dashboard</a>.'
+    );
   } catch(err) {
     loadingBubble.innerHTML = `<span style="color:var(--high)">Connection error: ${err.message}</span>`;
     addMsg('system', '❌ <strong>Done — connection error.</strong>');
@@ -499,11 +548,14 @@ async function stopLoad() {
 
   btnStop.disabled = true;
   btnStop.innerText = 'Stopping...';
+  btnStop.style.display = 'none';
+  btnStart.style.display = 'flex';
+  btnStart.disabled = true;
+  statusText.innerText = 'Stopping...';
 
   try {
-    await fetch('/api/simulation/stop', { method: 'POST' });
-    btnStop.style.display = 'none';
-    btnStart.style.display = 'flex';
+    const res = await fetch('/api/simulation/stop', { method: 'POST' });
+    if (!res.ok) throw new Error(`Stop request failed (${res.status})`);
     btnStart.disabled = false;
     btnStart.innerText = '▶ Start Traffic Simulator';
     dot.classList.remove('running');
@@ -512,10 +564,41 @@ async function stopLoad() {
     addMsg('system', '⏹ <strong>Automated load test stopped.</strong>');
   } catch(e) {
     console.error(e);
+    btnStop.style.display = 'flex';
     btnStop.disabled = false;
     btnStop.innerText = '■ Stop Simulator';
+    btnStart.style.display = 'none';
+    btnStart.disabled = true;
+    statusText.innerText = 'Unable to stop — retry';
   }
 }
+
+async function refreshLoadStatus() {
+  try {
+    const res = await fetch('/api/simulation/status');
+    const data = await res.json();
+    const btnStart = document.getElementById('btnStart');
+    const btnStop = document.getElementById('btnStop');
+    const dot = document.getElementById('loadDot');
+    const statusText = document.getElementById('loadStatusText');
+    if (data.running) {
+      btnStart.style.display = 'none';
+      btnStop.style.display = 'flex';
+      btnStop.disabled = false;
+      dot.classList.add('running');
+      statusText.innerText = 'Running — 10 req/s';
+      statusText.style.color = 'var(--low)';
+    } else if (!running) {
+      btnStart.style.display = 'flex';
+      btnStart.disabled = false;
+      btnStop.style.display = 'none';
+      dot.classList.remove('running');
+      statusText.innerText = 'Idle — click to start';
+      statusText.style.color = '';
+    }
+  } catch(e) { /* status is advisory */ }
+}
+setInterval(refreshLoadStatus, 1000);
 </script>
 </body>
 </html>

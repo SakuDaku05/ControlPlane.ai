@@ -25,6 +25,7 @@ import uvicorn
 from .agents import ALL_AGENTS
 from .config import settings
 from .dashboard.app import app as dashboard_app
+from .event_bus import new_connected_bus
 from .proxy.app import app as proxy_app
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-8s %(name)s: %(message)s")
@@ -53,6 +54,12 @@ BANNER = f"""
 
 async def main() -> None:
     print(BANNER)
+
+    session_bus = await new_connected_bus()
+    try:
+        await session_bus.reset_session_totals()
+    finally:
+        await session_bus.close()
 
     proxy_server = uvicorn.Server(uvicorn.Config(
         proxy_app, host=settings.proxy_host, port=settings.proxy_port, log_level="warning"))

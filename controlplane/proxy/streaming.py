@@ -150,6 +150,7 @@ async def run_turn(
 
     try:
         bus = await new_connected_bus()
+        await bus.bump_request()
     except Exception:
         bus = None
 
@@ -212,6 +213,7 @@ async def run_turn_buffered(wire: WireFormat, provider_name: str, body: dict, tr
     meta = {"id": f"{provider_name}-{trace_id}", "model": model, "created": int(time.time())}
 
     bus = await new_connected_bus()
+    await bus.bump_request()
     try:
         source = get_content_source(provider_name, model)
         full_text = ""

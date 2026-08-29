@@ -151,6 +151,16 @@ class EventBus:
         await self._pub.expire(key, 3600)
         await self._pub.incrbyfloat("cp:cost:session_total_usd", cost_usd)
 
+    async def bump_request(self) -> None:
+        await self._pub.incr("cp:requests:session_total")
+
+    async def get_session_total_requests(self) -> int:
+        val = await self._pub.get("cp:requests:session_total")
+        return int(val) if val else 0
+
+    async def reset_session_totals(self) -> None:
+        await self._pub.delete("cp:requests:session_total", "cp:cost:session_total_usd")
+
     async def get_cost(self, trace_id: str) -> dict:
         return await self._pub.hgetall(f"cp:cost:{trace_id}")
 

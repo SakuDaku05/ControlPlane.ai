@@ -53,6 +53,7 @@ class Settings:
 
     # --- Upstream LLM providers ---------------------------------------------
     openai_api_key: str = os.environ.get("OPENAI_API_KEY", "")
+    second_openai_api_key: str = os.environ.get("SECOND_OPENAI_API_KEY", "")
     openai_base_url: str = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
     report_model: str = os.environ.get("REPORT_MODEL", "openai/gpt-oss-20b")
     anthropic_api_key: str = os.environ.get("ANTHROPIC_API_KEY", "")

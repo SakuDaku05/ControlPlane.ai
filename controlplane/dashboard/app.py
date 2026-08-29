@@ -92,7 +92,6 @@ def _broadcast(payload: dict) -> None:
 
 def _bump_stats(payload: dict) -> None:
     if payload.get("kind") == "action":
-        _stats["total_requests"] += 1
         level = payload.get("risk_level", "LOW_RISK").split("_")[0].lower()
         if level in ("low", "medium", "high"):
             _stats[level] += 1
@@ -122,6 +121,8 @@ async def _consume_loop() -> None:
                 _bump_stats(payload)
                 _broadcast(payload)
                 await bus.ack_action("cp-agents:dashboard-actions", eid)
+
+            _stats["total_requests"] = await bus.get_session_total_requests()
 
             results = await bus.consume_findings("cp-agents:dashboard-results", count=20, block_ms=100)
             for eid, finding in results:
@@ -214,7 +215,14 @@ async def index(request: Request):
 
 
 async def summary(request: Request) -> JSONResponse:
-    return JSONResponse({"stats": _stats, "recent": _recent[-50:]})
+    bus = await new_connected_bus()
+    try:
+        stats = {**_stats,
+                 "total_requests": await bus.get_session_total_requests(),
+                 "session_cost_usd": round(await bus.get_session_total_cost(), 5)}
+    finally:
+        await bus.close()
+    return JSONResponse({"stats": stats, "recent": _recent[-50:]})
 
 
 async def resolve_escalation(request: Request) -> JSONResponse:
@@ -242,10 +250,22 @@ async def start_simulation(request: Request) -> JSONResponse:
 
 async def stop_simulation(request: Request) -> JSONResponse:
     global _sim_task, _sim_stop_event
-    if _sim_task is not None and not _sim_task.done():
+    task = _sim_task
+    if task is not None and not task.done():
         _sim_stop_event.set()
-        return JSONResponse({"status": "stopping"})
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        _sim_task = None
+        _sim_stop_event = None
+        return JSONResponse({"status": "stopped"})
     return JSONResponse({"status": "not_running"})
+
+
+async def simulation_status(request: Request) -> JSONResponse:
+    return JSONResponse({"running": _sim_task is not None and not _sim_task.done()})
 
 
 async def events(request: Request) -> EventSourceResponse:
@@ -313,10 +333,19 @@ async def generate_agent_report(request: Request) -> JSONResponse:
         return JSONResponse({"report": f"No findings available for the {agent_id} agent in the current session. Run a simulation first!"})
 
     profile = AGENT_REPORT_PROFILES[agent_id]
+    report_findings = [
+        {
+            "risk_level": finding.get("risk_level"),
+            "score": finding.get("score"),
+            "reason": str(finding.get("reason", ""))[:500],
+            "details": json.dumps(finding.get("details", {}), separators=(',', ':'))[:1000],
+        }
+        for finding in findings[-10:]
+    ]
     prompt = (
         f"You are generating the {profile['title']}. Analyze findings only through the lens of this agent's purpose: {profile['focus']}.\n"
-        f"Here are the most recent {len(findings)} findings from the current live session:\n\n"
-        f"{json.dumps(findings, indent=2)}\n\n"
+        f"Here are the most recent {len(report_findings)} findings from the current live session:\n\n"
+        f"{json.dumps(report_findings, separators=(',', ':'))}\n\n"
         f"Return a concise, professional markdown report titled exactly '# {profile['title']}'. "
         f"Use these sections: {profile['sections']}. "
         f"Do not discuss metrics outside this agent's responsibility, invent data, or include conversational filler."
@@ -328,11 +357,12 @@ async def generate_agent_report(request: Request) -> JSONResponse:
         "temperature": 0.2
     }
     
-    headers = {
-        "Authorization": f"Bearer {settings.openai_api_key}",
-        "Content-Type": "application/json"
-    }
-    
+    api_keys = list(dict.fromkeys(
+        key for key in (settings.openai_api_key, settings.second_openai_api_key) if key
+    ))
+    if not api_keys:
+        return JSONResponse({"error": "No report API key configured."}, status_code=500)
+
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             # We strip trailing / from base url just in case
@@ -340,9 +370,23 @@ async def generate_agent_report(request: Request) -> JSONResponse:
             url = f"{base_url}/chat/completions" if "/v1" in base_url else f"{base_url}/v1/chat/completions"
             if "groq" not in base_url.lower():
                   body["model"] = "gpt-4o-mini"
-            resp = await client.post(url, json=body, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
+            for attempt, api_key in enumerate(api_keys, start=1):
+                try:
+                    resp = await client.post(
+                        url,
+                        json=body,
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    break
+                except Exception as error:
+                    if attempt == len(api_keys):
+                        raise
+                    logger.warning("Report request failed with key %d; trying fallback key", attempt)
             report = data.get("choices", [{}])[0].get("message", {}).get("content", "Error generating report.")
             if not report.lstrip().startswith(f"# {profile['title']}"):
                 report = f"# {profile['title']}\n\n{report.lstrip()}"
@@ -362,6 +406,7 @@ app = Starlette(
         Route("/api/resolve/{trace_id}", resolve_escalation, methods=["POST"]),
         Route("/api/simulation/start", start_simulation, methods=["POST"]),
         Route("/api/simulation/stop", stop_simulation, methods=["POST"]),
+        Route("/api/simulation/status", simulation_status, methods=["GET"]),
         Route("/api/events", events, methods=["GET"]),
     ],
     lifespan=lifespan,

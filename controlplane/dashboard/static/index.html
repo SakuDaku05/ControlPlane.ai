@@ -166,6 +166,8 @@
   .data-group { display: flex; flex-direction: column; gap: 8px; }
   .data-label { font-size: 11px; color: var(--muted); text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em; }
   .data-value { background: rgba(0,0,0,0.03); border: 1px solid var(--panel-border); border-radius: 8px; padding: 14px; font-family: 'SFMono-Regular', Consolas, monospace; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+  .response-preview { background: var(--panel); border: 1px solid rgba(255,23,68,0.25); border-left: 3px solid var(--high); border-radius: 8px; padding: 16px 18px; color: var(--text); font-family: 'Inter', sans-serif; font-size: 13px; line-height: 1.6; max-height: 220px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
+  .response-preview.is-empty { color: var(--muted); font-style: italic; }
   .data-reason { color: var(--high); font-weight: 600; font-size: 14px; }  /* Agent Cards */
   .trace-timeline { display: flex; flex-direction: column; gap: 8px; }
   .trace-span { background: rgba(0,0,0,0.03); border: 1px solid var(--panel-border); border-left: 3px solid var(--accent); border-radius: 6px; padding: 10px 12px; }
@@ -573,8 +575,8 @@
         <div class="data-value" id="modalPrompt"></div>
       </div>
       <div class="data-group">
-        <div class="data-label">Blocked Response Snippet</div>
-        <div class="data-value" id="modalSnippet"></div>
+        <div class="data-label">Blocked Response Excerpt</div>
+        <div class="response-preview" id="modalSnippet"></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -612,6 +614,16 @@ let currentReviewTrace = null;
 function fmtTime(ts) { return new Date(ts * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}); }
 function shortTrace(t) { return t ? t.slice(0,8) : ''; }
 function esc(s) { const d = document.createElement('div'); d.innerText = s ?? ''; return d.innerHTML; }
+function cleanSnippet(value) {
+  return String(value ?? '')
+    .replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, '')
+    .replace(/<\/?think\b[^>]*>/gi, '')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*]\s+/gm, '')
+    .replace(/\*([^*\n]+)\*/g, '$1')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
 
 // ── Navigation ────────────────────────────────────────────────────────
 function switchView(viewId, btn) {
@@ -688,7 +700,7 @@ function handleEvent(payload) {
       <td style="color:var(--muted);">${fmtTime(payload.created_at)}</td>
       <td class="trace">${shortTrace(payload.trace_id)}</td>
       <td class="reason">${esc(payload.reason)}</td>
-      <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted);">${esc(payload.snippet)}</td>
+      <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted);">${esc(cleanSnippet(payload.snippet))}</td>
       <td><button class="btn btn-outline" onclick="openReview('${payload.trace_id}')">Review</button></td>
     `, 30, `esc-${payload.trace_id}`, 'escalation-row');
   } else if (payload.kind === 'resolved') {
@@ -706,7 +718,10 @@ function openReview(traceId) {
   document.getElementById('modalTrace').innerText = shortTrace(traceId);
   document.getElementById('modalReason').innerText = data.reason;
   document.getElementById('modalPrompt').innerText = data.prompt || 'N/A';
-  document.getElementById('modalSnippet').innerText = data.snippet || 'N/A';
+  const snippet = document.getElementById('modalSnippet');
+  const snippetText = cleanSnippet(data.snippet).replace(/\r\n/g, '\n');
+  snippet.innerText = snippetText || 'No response content was captured.';
+  snippet.classList.toggle('is-empty', !snippetText);
   const findingSummary = (data.findings || []).map(finding => {
     const details = Object.entries(finding.details || {}).map(([name, value]) => `${name}: ${JSON.stringify(value)}`).join(' | ');
     return `${finding.agent || 'agent'} · ${finding.risk_level || 'UNKNOWN'} · score ${finding.score ?? '—'} · ${finding.reason || 'No reason'}${details ? ` · ${details}` : ''}`;
