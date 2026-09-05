@@ -190,6 +190,7 @@ pytest -q
 
 ## 8. Project structure
 
+```
 ControlPlane.ai/
 ├── controlplane/
 │   ├── agents/
@@ -207,6 +208,8 @@ ControlPlane.ai/
 │   ├── schemas.py
 │   └── util.py
 ├── demo/
+├── resources/
+├── submissions/
 ├── tests/
 ├── Dockerfile
 ├── README.md
@@ -215,6 +218,7 @@ ControlPlane.ai/
 ├── docker-compose.yml
 ├── requirements.txt
 └── .env
+```
 
 ## 9. Notes
 
