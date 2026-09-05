@@ -2,6 +2,12 @@
 
 A non-blocking sidecar proxy that evaluates outbound LLM traffic in real time, blocks unsafe output when needed, and exposes the findings through a live dashboard.
 
+## 🎬 Demo Video
+
+Watch the project demonstration video: [**`23je0841_ControlPlane.ai_R2.mp4`**](<Video : PPT submissions/23je0841_ControlPlane.ai_R2.mp4>)
+
+---
+
 ## 1. Implementation approach
 
 The solution sits between the application and the upstream model provider as a sidecar proxy. It does not treat the model as trusted by default; instead, it intercepts requests and responses, evaluates them across multiple guardrail dimensions, and enforces a clear risk policy:
